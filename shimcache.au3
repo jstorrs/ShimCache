@@ -34,6 +34,8 @@ Const $PgmVersion = "2024.12.03"
 #include <GuiListView.au3>
 #include <GuiEdit.au3>
 #include <FontConstants.au3>
+#include <AutoItConstants.au3>
+#include <Misc.au3>
 #include "include/GuiListViewEx.au3"
 #include "include/ListViewCustomDraw.au3"
 
@@ -93,8 +95,43 @@ EndIf
 ; execution
 ; -----------------------------------------------------------------------------
 
+; allow one instance per mode; if this mode is already running, raise its
+; window instead of opening a second copy
+RaiseExistingInstance()
+
 ; execute the main loop
 _Main()
+
+
+; -----------------------------------------------------------------------------
+; single instance
+; -----------------------------------------------------------------------------
+
+Func RaiseExistingInstance()
+	; the mutex is held for the lifetime of this process; _Singleton returns 0
+	; if another process already owns it
+	If (_Singleton("ShimCache_" & $PgmName, 1) <> 0) Then Return
+
+	; match the exact title and AutoIt GUI class so we don't grab an unrelated
+	; window (e.g. an editor with "ShimCache" in its title); wait briefly in
+	; case the other instance has not created its window yet
+	Local $sWin = "[TITLE:" & $PgmName & "; CLASS:AutoIt v3 GUI]"
+	Local $hWin = WinWait($sWin, "", 3)
+	If ($hWin == 0) Then
+		; no window: the other instance was likely just closing, so if the
+		; mutex has been released, carry on as the new instance
+		If (_Singleton("ShimCache_" & $PgmName, 1) <> 0) Then Return
+		Exit 0
+	EndIf
+
+	If BitAND(WinGetState($hWin), $WIN_STATE_MINIMIZED) Then WinSetState($hWin, "", @SW_RESTORE)
+	WinActivate($hWin)
+
+	; FASTMAP values come from a log that changes on every FASTMAP run, so the
+	; raised window must reload it or "Apply Selected" would use stale shims
+	If ($GUIMode == 2) Then ControlClick($hWin, "", "[CLASS:Button; TEXT:Refresh]")
+	Exit 0
+EndFunc ;==>RaiseExistingInstance
 
 
 ; -----------------------------------------------------------------------------
