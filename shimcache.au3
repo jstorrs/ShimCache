@@ -881,6 +881,9 @@ Func GetShimValuesFromFile($fname)
 			ExitLoop
 		EndIf
 
+		; skip comment/metadata lines (e.g. #ShimCachePatientCheck)
+		If (StringLeft(StringStripWS($line, $STR_STRIPLEADING), 1) == "#") Then ContinueLoop
+
 		; valid AdjValidate output will always be a list of numbers separated by spaces
 		; FASTMAP can have multiple spaces between elements, so add $STR_STRIPSPACES
 		Local $arr = StringSplit(StringStripWS($line, $STR_STRIPLEADING + $STR_STRIPTRAILING + $STR_STRIPSPACES), " ", $STR_NOCOUNT)
