@@ -49,6 +49,12 @@ Global $PgmName, $ShimFilePrefix, $ShimFileSuffix	; global text
 Global $AdjValidate, $ScratchDir					; filenames/paths
 Global $hGUI, $idExit, $hList, $idList, $idEdit		; window handles
 Global $winW, $winH									; window dimensions (minimum)
+Global $winWFull, $winMinW							; width with 3rd-order columns; narrowest that fits the buttons
+
+; 3rd-order shim columns (B0/FASTMAP), dropped when every shimset is 2nd order
+Global Const $ThirdOrderCols[4] = ["Z3", "Z2X", "Z2Y", "Z(X2-Y2)"]
+Global Const $ThirdOrderFirstCol = 10				; 2 label columns + 8 2nd-order shims
+Global $listHasThirdOrder = True
 Global $FM_LastLog = -1								; remember last displayed FASTMAP logfile
 Global $NoOfGPAs = 1								; number of GPAs in system (important >XA60)
 Global $debugLog = 0								; debug log level (0 = release, 1 = debug)
@@ -180,6 +186,8 @@ Func _Main()
 		If $screenType == 1 Then $nEditBoxLines = 90
 	EndIf
 
+	$winWFull = $winW
+
 	; calculate dependent parameters
 	Local $listBoxH = $nListBoxLines*($mainFontH+3) + 28 ; +28 for header row, +3 per line for selection border?
 	Local $editBoxH = $nEditBoxLines*$editFontH
@@ -248,6 +256,9 @@ Func _Main()
 		GUICtrlSetOnEvent($ClearAllID, "OnClearAll")
 	EndIf
 
+	; narrowest width that fits the left buttons plus About/Exit on the right
+	$winMinW = $left + $btnW + $hPad + 50 + $hPad + 50 + $rhB
+
 	; top row of buttons, right side
 	$left = $winW - $rhB
 	$btnW = 50
@@ -296,9 +307,10 @@ Func _Main()
 		GUICtrlSetResizing($idEdit, $GUI_DOCKHEIGHT + $GUI_DOCKBOTTOM)
 	EndIf
 
-	GUISetState()		; display the GUI
 	_Setup()			; set/check defaults
-	UpdateListView()	; initialize the list
+	UpdateListView()	; initialize the list (may narrow the window for 2nd-order shims)
+	GUISetState()		; display the GUI once it has its final width, so it doesn't flash wide
+	GUICtrlSetState($idList, $GUI_FOCUS) ; focus set while hidden may not survive showing the window
 
 	; idle until the user exits; in OnEvent mode, events are dispatched to the
 	; registered handlers (OnExit etc.) while the script sleeps
@@ -589,8 +601,15 @@ Func UpdateListView()
 	Local $files = GetShimsetFiles()
 	Local $count = UBound($files)
 
+	; read all shimsets first: the column set must match them before rows are added
+	Local $shimSets[$count]
+	For $idx=0 To $count-1
+		$shimSets[$idx] = GetShimValuesFromFile($files[$idx])
+	Next
+
 	; build the list
 	_GUICtrlListView_DeleteAllItems($idList)
+	Local $orderChanged = SetThirdOrderColumns(MaxShimCount($shimSets))
 	$listRows = 0
 
 	If ($GUIMode == 1) Then
@@ -601,8 +620,8 @@ Func UpdateListView()
 
 	; loop through all candidate files
 	For $idx=0 To $count-1
-		; get values, only add to list if valid
-		Local $shimarr = GetShimValuesFromFile($files[$idx])
+		; only add to list if valid
+		Local $shimarr = $shimSets[$idx]
 		If (UBound($shimarr) > 1) Then
 			$listRows += 1
 			Local $timestamp = GetTimeStampFromFilename($files[$idx]) ; get readable timestamp
@@ -640,8 +659,92 @@ Func UpdateListView()
 		GUIRegisterMsg($WM_ACTIVATE, "WM_ACTIVATE")
 	EndIf
 
+	If ($orderChanged) Then FitWindowToColumns()
+
 	GUICtrlSetState($idList, $GUI_FOCUS) ; put focus back on list after any popup
 EndFunc ;==>UpdateListView
+
+
+; returns the largest number of shim values among the shimsets (0 if none are valid)
+Func MaxShimCount(ByRef $shimSets)
+	Local $max = 0
+	For $idx=0 To UBound($shimSets)-1
+		If (UBound($shimSets[$idx]) > $max) Then $max = UBound($shimSets[$idx])
+	Next
+	Return $max
+EndFunc ;==>MaxShimCount
+
+
+; show the 3rd-order columns only if some shimset has 3rd-order values (B0/FASTMAP)
+; call with the list empty, before adding rows; returns True if the columns changed
+; with no valid shimsets ($nShims = 0) the order is unknown, so keep the current columns
+Func SetThirdOrderColumns($nShims)
+	If (($GUIMode == 1) Or ($nShims == 0)) Then Return False
+
+	Local $want = ($nShims > 8)
+	If ($want == $listHasThirdOrder) Then Return False
+
+	Local $nCols = UBound($ThirdOrderCols)
+	If ($want) Then
+		For $idx=0 To $nCols-1
+			_GUICtrlListView_InsertColumn($hList, $ThirdOrderFirstCol+$idx, $ThirdOrderCols[$idx])
+		Next
+	Else
+		For $idx=$nCols-1 To 0 Step -1
+			_GUICtrlListView_DeleteColumn($hList, $ThirdOrderFirstCol+$idx)
+		Next
+	EndIf
+	$listHasThirdOrder = $want
+	Return True
+EndFunc ;==>SetThirdOrderColumns
+
+
+; resize the window after the 3rd-order columns were added or removed (call after adding rows)
+; 3rd order: back to the full default width; 2nd order: just wide enough for the columns
+; FASTMAP keeps its width either way: its log box below the list needs it
+Func FitWindowToColumns()
+	Local $nCols = _GUICtrlListView_GetColumnCount($hList)
+	If ($listHasThirdOrder Or ($GUIMode == 2)) Then
+		$winW = $winWFull
+	Else
+		; the last column may have been stretched to fill the full-width list, so size it
+		; to its contents (but no narrower than its header) before adding up the widths
+		Local $last = $nCols-1
+		_GUICtrlListView_SetColumnWidth($hList, $last, $LVSCW_AUTOSIZE)
+		Local $lastCol = _GUICtrlListView_GetColumn($hList, $last) ; [5] is the header text
+		Local $hdrW = _GUICtrlListView_GetStringWidth($hList, $lastCol[5]) + 12
+		If (_GUICtrlListView_GetColumnWidth($hList, $last) < $hdrW) Then _GUICtrlListView_SetColumnWidth($hList, $last, $hdrW)
+
+		Local $colsW = 0
+		For $idx=0 To $nCols-1
+			$colsW += _GUICtrlListView_GetColumnWidth($hList, $idx)
+		Next
+		; +4 list border, +20 vertical scrollbar, +4 window borders (see list width in _Main)
+		$winW = $colsW + 28
+		If ($winW < $winMinW) Then $winW = $winMinW
+		If ($winW > $winWFull) Then $winW = $winWFull
+	EndIf
+
+	; leave a minimized or maximized window alone; $winW still sets the new minimum
+	Local $state = WinGetState($hGUI)
+	If (Not BitAND($state, $WIN_STATE_MINIMIZED + $WIN_STATE_MAXIMIZED)) Then
+		; window was created with client width $winW+2; keep the frame size the OS added
+		Local $pos = WinGetPos($hGUI)
+		Local $client = WinGetClientSize($hGUI)
+		Local $newW = $winW + 2 + ($pos[2] - $client[0])
+		Local $newX = $pos[0]
+		; at startup the window is not shown yet, so keep it centered like GUICreate did
+		If (Not BitAND($state, $WIN_STATE_VISIBLE)) Then $newX += Int(($pos[2] - $newW) / 2)
+		WinMove($hGUI, "", $newX, $pos[1], $newW, $pos[3])
+	EndIf
+
+	; size re-added columns to their contents now that the list is full width again
+	If ($listHasThirdOrder) Then
+		For $idx=$ThirdOrderFirstCol To $nCols-1
+			_GUICtrlListView_SetColumnWidth($hList, $idx, $LVSCW_AUTOSIZE_USEHEADER)
+		Next
+	EndIf
+EndFunc ;==>FitWindowToColumns
 
 
 ; display about info box
@@ -925,17 +1028,30 @@ Func FM_UpdateListView()
 	_ArrayAdd($descArr, "Old 2")
 	_ArrayAdd($descArr, "Old 3")
 
+	; read all shimsets first: the column set must match them before rows are added
+	Local $shimSets[4]
+	For $idx=0 To 3
+		$shimSets[$idx] = GetShimValuesFromFile($fileArr[$idx])
+	Next
+
 	; build the list
 	_GUICtrlListView_DeleteAllItems($idList)
+	Local $orderChanged = SetThirdOrderColumns(MaxShimCount($shimSets))
 	For $idx=0 To 3
-		; get values, only add to list if valid
-		Local $shimarr = GetShimValuesFromFile($fileArr[$idx])
+		; only add to list if valid
+		Local $shimarr = $shimSets[$idx]
 		If (UBound($shimarr) > 1) Then
 			Local $timestamp = GetTimeStampFromFilename(FileGetTime($fileArr[$idx], $FT_MODIFIED, $FT_STRING))
 			GUICtrlCreateListViewItem($descArr[$idx] & "|" & $timestamp & "|" & _ArrayToString($shimarr, "|"), $idList)
 			GUICtrlSetOnEvent(-1, "FM_ShowLog")
 		EndIf
 	Next
+
+	If ($orderChanged) Then FitWindowToColumns()
+
+	; ClickItem below is a real mouse click, so the window must be visible; at
+	; startup this runs before _Main shows it
+	GUISetState(@SW_SHOW, $hGUI)
 
 	; reset log history and select Newest which will show the newest log
 	; note: ClickItem seems to be too fast sometimes for GUICtrlSetOnEvent to register,
