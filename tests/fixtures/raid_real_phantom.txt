@@ -1,0 +1,12 @@
+RAID device 
+   571788 Mbyte of  572180 MByte available for I/O
+   560396 MByte of  571788 MByte in use,   11392 MByte free
+     1066 Files of  142947 Files in use,  141881 Files free
+
+ FileID     MeasID                        ProtName                         PatName   Status         Size   SizeOnDisk          CreationTime             CloseTime dependent files (fileID)
+
+  17068        194         localizer_64ch @QA FMRI         PHANTOM^ezFMRI,20060701      wip    285212672    335544320   15.10.2026 21:22:24   31.12.1969 19:00:00 17067, 17067
+  17067        193                     AdjCoilSens         PHANTOM^ezFMRI,20060701      cld    124278336    125829120   15.10.2026 21:22:14   15.10.2026 21:22:19
+  17066        192                         AdjDico         PHANTOM^ezFMRI,20060701      cld      1598208      4194304   15.10.2026 21:22:12   15.10.2026 21:22:13
+  17065        191                          AdjTra         PHANTOM^ezFMRI,20060701      cld       728224      4194304   15.10.2026 21:22:02   15.10.2026 21:22:05
+  17064        190                          AdjFre         PHANTOM^ezFMRI,20060701      cld       727424      4194304   15.10.2026 20:12:22   15.10.2026 20:12:24

@@ -9,10 +9,11 @@
 ; the patient in the scanner matches the one saved shims were taken from.
 ;
 ; At Get, PC_MakeBaseline/PC_FormatBaseline produce a one-line trailer
-; ("#ShimCachePatientCheck v1 ...") naming the newest closed patient key and its
-; FID. At Set, PC_ParseBaseline reads it back and PC_Verdict compares it with a
-; fresh listing: VERIFIED (no other patient since), MISMATCH (another patient
-; seen) or UNVERIFIED (cannot tell).
+; ("#ShimCachePatientCheck v1 ...") naming the patient key of the newest keyed
+; measurement (closed or still running) and its FID. At Set, PC_ParseBaseline
+; reads it back and PC_Verdict compares it with a fresh listing: VERIFIED (no
+; other patient since), MISMATCH (another patient seen, in a completed or a
+; running measurement) or UNVERIFIED (cannot tell).
 ;
 ; Pure functions only: no GUI, no logging, no file IO.
 ; -----------------------------------------------------------------------------
@@ -43,9 +44,13 @@ EndFunc ;==>PC_PatKey
 
 
 ; Parse a RaidTool -d listing into a 2D array [n][$PC_NCOLS], one row per file
-; after the "FileID" header line.
-;   STATUS "cld": closed file, fully parsed; PATKEY is always 16 hex chars.
-;   STATUS "?"  : FileID/MeasID found but the rest is in progress, an unknown
+; after the "FileID" header line. Invariant:
+;   STATUS "cld": closed measurement, fully parsed; PATKEY is always 16 hex
+;                 chars; CREATE and CLOSE are set.
+;   STATUS "wip": measurement still running, parsed like "cld"; PATKEY is always
+;                 16 hex chars; CREATE is set and CLOSE is "" (RaidTool prints
+;                 a placeholder close time, epoch 0, which must never be used).
+;   STATUS "?"  : FileID/MeasID found but the rest is an unknown status or
 ;                 layout, or a patient field that fails the shape check. Only
 ;                 FID and MID are set; callers must treat it as unverifiable.
 ; Sets @error = 1 (and returns zero rows) if no header line is found.
@@ -56,14 +61,34 @@ EndFunc ;==>PC_PatKey
 Func PC_ParseRaidList($sText, $iPatWidth = 32)
 	Local $aLines = StringSplit(StringStripCR($sText), @LF, $STR_NOCOUNT)
 	Local $aRows[UBound($aLines)][$PC_NCOLS]		; preallocated, trimmed once at the end
-	; The patient field is assumed to be right-aligned. If it is left-aligned,
-	; the lazy protocol group lets the window slide left: PROT loses its last
-	; characters and the key changes, giving a safe false mismatch.
-	; A name longer than the field is keyed only on its last $iPatWidth characters,
-	; and a field cut short at the width can lose birthdate digits. Both cases
-	; still need checking against a real RaidTool capture.
-	Local $sStrict = '^\s*(\d+)\s+(\d+)\s+(.+?)(.{' & $iPatWidth & '})\s+cld\s+(\d+)\s+(\d+)\s+(\d\d)\.(\d\d)\.(\d{4}) (\d\d:\d\d:\d\d)\s+(\d\d)\.(\d\d)\.(\d{4}) (\d\d:\d\d:\d\d)'
-	Local $sLoose = '^\s*(\d+)\s+(\d+)(?:\s|$)'
+	; Layout confirmed from a real capture (tests\fixtures\raid_real_phantom.txt):
+	; fixed-width, every column right-aligned, no separators between fields
+	; (%7d%11d%32s%32s%9s%13s%13s%22s%22s): ProtName is a %32s field ending at
+	; column 50 and PatName a %32s field ending at column 82; the status is "cld"
+	; or "wip"; the listing is newest-first. A "wip" row has the full layout, with
+	; CloseTime 31.12.1969 19:00:00 (epoch 0 in local time). Trailing columns such
+	; as "dependent files" are ignored: the pattern is not anchored at the end.
+	; With no separator, a protocol name of 32 or more characters abuts MeasID,
+	; so MeasID and ProtName are split by \s* rather than \s+. A protocol name
+	; longer than 32 characters overflows its field and pushes the rest of the
+	; line right; the patient window still works because it is anchored on the
+	; status column. A digit-leading protocol may lose digits to MeasID, so both
+	; MID and PROT can be off for such a row; the verdict uses neither.
+	; An all-digit protocol of 32+ characters next to a 32-character patient name
+	; can shift the patient window by one character: only a safe false mismatch.
+	; Both patterns allow at most 7 leading spaces, anchoring the first number to
+	; the %7d FileID column. Otherwise a row with a blank FileID and a digit-leading
+	; protocol (e.g. "3D_localizer") would parse with FID = MeasID and MID = the
+	; protocol digits; a new patient's row would then fall below $iFrom and be
+	; ignored, a false VERIFIED. Such a row is now an unparsed line (@extended).
+	; If a patient field were ever printed left-aligned, the lazy protocol group
+	; would let the window slide left: PROT loses its last characters and the key
+	; changes, giving a safe false mismatch.
+	; Still unknown: how a name longer than the field is printed. It is keyed only
+	; on its last $iPatWidth characters, and a field cut short at the width can
+	; lose birthdate digits.
+	Local $sStrict = '^\s{0,7}(\d+)\s+(\d+)\s*(.+?)(.{' & $iPatWidth & '})\s+(cld|wip)\s+(\d+)\s+(\d+)\s+(\d\d)\.(\d\d)\.(\d{4}) (\d\d:\d\d:\d\d)\s+(\d\d)\.(\d\d)\.(\d{4}) (\d\d:\d\d:\d\d)'
+	Local $sLoose = '^\s{0,7}(\d+)\s+(\d+)'
 	Local $iStart = -1, $n = 0, $iUnknown = 0, $i, $aM, $sPat
 	Local $sPrevPat = "", $sPrevKey = ""		; consecutive rows usually share a patient
 
@@ -94,9 +119,10 @@ Func PC_ParseRaidList($sText, $iPatWidth = 32)
 				$aRows[$n][$PC_PROT] = StringStripWS($aM[2], 3)
 				$aRows[$n][$PC_PAT] = $sPat
 				$aRows[$n][$PC_PATKEY] = $sPrevKey
-				$aRows[$n][$PC_STATUS] = "cld"
-				$aRows[$n][$PC_CREATE] = $aM[8] & "/" & $aM[7] & "/" & $aM[6] & " " & $aM[9]		; yyyy/mm/dd hh:mm:ss for _DateDiff
-				$aRows[$n][$PC_CLOSE] = $aM[12] & "/" & $aM[11] & "/" & $aM[10] & " " & $aM[13]
+				$aRows[$n][$PC_STATUS] = $aM[4]
+				$aRows[$n][$PC_CREATE] = $aM[9] & "/" & $aM[8] & "/" & $aM[7] & " " & $aM[10]		; yyyy/mm/dd hh:mm:ss for _DateDiff
+				; a running measurement prints a placeholder close time: never use it
+				$aRows[$n][$PC_CLOSE] = ($aM[4] == "cld" ? $aM[13] & "/" & $aM[12] & "/" & $aM[11] & " " & $aM[14] : "")
 				$n += 1
 				ContinueLoop
 			EndIf
@@ -131,29 +157,37 @@ EndFunc ;==>PC_ParseRaidList
 Global Enum $PC_UNVERIFIED, $PC_MISMATCH, $PC_VERIFIED
 
 ; A baseline is a 3-element 1D array, captured at Get and checked at Set:
-;   [0] patKey: 16 lowercase hex chars, or "" if no closed row was listed
+;   [0] patKey: 16 lowercase hex chars, or "" if no keyed row was listed
 ;   [1] fid:    FID (Number) of the row the key came from, 0 if none
 ;   [2] time:   capture time "yyyy/mm/dd hh:mm:ss" (the _DateDiff format)
 
 
-; index of the "cld" row with the largest FID, or -1 if there is none
-; (rows are in listing order, which need not be FID order)
-Func __PC_NewestCld(ByRef $aRows)
+; True for a keyed row status: "cld" or "wip" (always has a 16-hex PATKEY)
+Func __PC_IsKeyed($sStatus)
+	Return $sStatus == "cld" Or $sStatus == "wip"
+EndFunc ;==>__PC_IsKeyed
+
+
+; index of the keyed row ("cld" or "wip") with the largest FID, or -1 if there
+; is none (rows are in listing order, which need not be FID order)
+Func __PC_NewestKeyed(ByRef $aRows)
 	Local $iBest = -1, $i
 	For $i = 0 To UBound($aRows) - 1
-		If $aRows[$i][$PC_STATUS] == "cld" And ($iBest < 0 Or $aRows[$i][$PC_FID] > $aRows[$iBest][$PC_FID]) Then $iBest = $i
+		If __PC_IsKeyed($aRows[$i][$PC_STATUS]) And ($iBest < 0 Or $aRows[$i][$PC_FID] > $aRows[$iBest][$PC_FID]) Then $iBest = $i
 	Next
 	Return $iBest
-EndFunc ;==>__PC_NewestCld
+EndFunc ;==>__PC_NewestKeyed
 
 
 ; Baseline from the listing taken at Get time.
+; The keyed row is the newest "cld" or "wip" row, so a Get during a patient's
+; first measurement still records them.
 ; fid is the FID of the KEYED row, not the largest FID overall. This is
-; deliberate: a row still in progress at Get ("?") is newer than the keyed row,
-; so PC_Verdict re-checks it at Set instead of trusting it unseen.
+; deliberate: an unreadable row at Get ("?") is newer than the keyed row, so
+; PC_Verdict re-checks it at Set instead of trusting it unseen.
 Func PC_MakeBaseline(ByRef $aRows, $sNowCalc)
 	Local $aBase[3] = ["", 0, $sNowCalc]
-	Local $i = __PC_NewestCld($aRows)
+	Local $i = __PC_NewestKeyed($aRows)
 	If $i >= 0 Then
 		$aBase[0] = $aRows[$i][$PC_PATKEY]
 		$aBase[1] = $aRows[$i][$PC_FID]
@@ -207,7 +241,7 @@ EndFunc ;==>__PC_First
 ; Compare a baseline with a fresh listing taken at Set time.
 ; $iUnknown is PC_ParseRaidList's @extended (lines it could not parse at all).
 ; Returns [verdict, reason, currentPat]; currentPat is the PAT of the newest
-; "cld" row (or "") for display only, never for logging.
+; keyed ("cld" or "wip") row (or "") for display only, never for logging.
 ; A false VERIFIED is the dangerous direction, so every doubt (unreadable rows
 ; or lines, date errors, clock skew, stale shims, an idle scanner) ends in
 ; UNVERIFIED or MISMATCH. MISMATCH wins over UNVERIFIED; within each, the first
@@ -217,7 +251,7 @@ EndFunc ;==>__PC_First
 ; the recon system takes its time from the console at boot); a persistent skew
 ; larger than 5 minutes would delay it by that skew.
 Func PC_Verdict($aBase, ByRef $aRows, $iUnknown, $sNowCalc, $iIdleMin, $iMaxAgeHours)
-	Local $iNewest = __PC_NewestCld($aRows)
+	Local $iNewest = __PC_NewestKeyed($aRows)
 	Local $sPat = "", $iMaxFid = -1, $iFrom, $sMis = "", $sUnv = "", $i, $iDiff
 	If $iNewest >= 0 Then $sPat = $aRows[$iNewest][$PC_PAT]
 
@@ -229,28 +263,30 @@ Func PC_Verdict($aBase, ByRef $aRows, $iUnknown, $sNowCalc, $iIdleMin, $iMaxAgeH
 		If $aRows[$i][$PC_FID] > $iMaxFid Then $iMaxFid = $aRows[$i][$PC_FID]
 	Next
 	If UBound($aRows) = 0 Or $iMaxFid < $aBase[1] Then
-		; RAID cleared or IDs reset: the newest closed rows (every "cld" row at the
-		; newest FID, whatever the listing order) still tell us who is there
+		; RAID cleared or IDs reset: the newest keyed rows (every "cld" or "wip" row
+		; at the newest keyed FID, whatever the listing order) still tell us who is there
 		If $iNewest >= 0 Then
 			For $i = 0 To UBound($aRows) - 1
-				If $aRows[$i][$PC_STATUS] == "cld" And $aRows[$i][$PC_FID] = $aRows[$iNewest][$PC_FID] And Not ($aRows[$i][$PC_PATKEY] == $aBase[0]) Then Return __PC_Result($PC_MISMATCH, "The most recent measurement belongs to a different patient.", $sPat)
+				If __PC_IsKeyed($aRows[$i][$PC_STATUS]) And $aRows[$i][$PC_FID] = $aRows[$iNewest][$PC_FID] And Not ($aRows[$i][$PC_PATKEY] == $aBase[0]) Then Return __PC_Result($PC_MISMATCH, "The most recent measurement belongs to a different patient.", $sPat)
 			Next
 		EndIf
 		Return __PC_Result($PC_UNVERIFIED, "The RAID listing is older than these shims (RAID cleared or IDs reset).", $sPat)
 	EndIf
-	If $iNewest < 0 Then Return __PC_Result($PC_UNVERIFIED, "No completed measurement with readable patient information is on the RAID.", $sPat)
+	If $iNewest < 0 Then Return __PC_Result($PC_UNVERIFIED, "No measurement with readable patient information is on the RAID.", $sPat)
 
-	; (e)/(f) every row from $iFrom up must be closed and the same patient.
-	; $iFrom is the row after the keyed baseline row, or the newest closed row if
+	; (e)/(f) every row from $iFrom up must be keyed ("cld" or "wip") and the same
+	; patient. A running measurement names its patient too, so a different patient
+	; in it is a MISMATCH and the same patient is fine.
+	; $iFrom is the row after the keyed baseline row, or the newest keyed row if
 	; that is lower (IDs reused), so duplicate FIDs are checked whatever their
-	; listing order and a "?" row above the newest closed row is never skipped.
+	; listing order and a "?" row above the newest keyed row is never skipped.
 	$iFrom = $aBase[1] + 1
 	If $aRows[$iNewest][$PC_FID] < $iFrom Then $iFrom = $aRows[$iNewest][$PC_FID]
 	For $i = 0 To UBound($aRows) - 1
 		If $aRows[$i][$PC_FID] < $iFrom Then ContinueLoop
-		If Not ($aRows[$i][$PC_STATUS] == "cld") Then
-			; "?" (or any status other than "cld") cannot be checked
-			$sUnv = __PC_First($sUnv, "A newer measurement is in progress or could not be read.")
+		If Not __PC_IsKeyed($aRows[$i][$PC_STATUS]) Then
+			; "?" (or any status other than "cld"/"wip") cannot be checked
+			$sUnv = __PC_First($sUnv, "A newer measurement could not be read.")
 		ElseIf Not ($aRows[$i][$PC_PATKEY] == $aBase[0]) Then
 			$sMis = __PC_First($sMis, ($aRows[$i][$PC_FID] > $aBase[1] ? "A different patient has been scanned since these shims were saved." : "The most recent measurement belongs to a different patient."))
 		EndIf
@@ -272,8 +308,16 @@ Func PC_Verdict($aBase, ByRef $aRows, $iUnknown, $sNowCalc, $iIdleMin, $iMaxAgeH
 	EndIf
 
 	; (h) scanner idle: a new patient may be registered but not yet scanned.
+	; Measured from the newest keyed row's CLOSE. Skipped while that row is "wip"
+	; (its CLOSE is "" and never reaches _DateDiff): an aborted scan ends as "cld",
+	; and the patient cannot change while a row is "wip" (the table is locked by
+	; the acquisition), so a "wip" row means that patient is in the scanner now.
+	; If it is another patient, the loop above has already found a MISMATCH.
+	; A "wip" row that never closes (e.g. recon crashed mid-acquisition) would
+	; bypass this check until another patient's row appears; $iMaxAgeHours still
+	; bounds it, and the README checklist covers it.
 	; _DateDiff floors negative results, so allow 5 minutes of ordinary skew.
-	If $iIdleMin > 0 Then
+	If $iIdleMin > 0 And Not ($aRows[$iNewest][$PC_STATUS] == "wip") Then
 		$iDiff = _DateDiff("n", $aRows[$iNewest][$PC_CLOSE], $sNowCalc)
 		If @error Then
 			$sUnv = __PC_First($sUnv, "Could not compare the scanner's dates with this computer's clock.")
