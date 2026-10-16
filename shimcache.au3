@@ -38,6 +38,7 @@ Const $PgmVersion = "2026.10.15"
 #include <FontConstants.au3>
 #include <AutoItConstants.au3>
 #include <Misc.au3>
+#include <WinAPIProc.au3>
 #include "include/GuiListViewEx.au3"
 #include "include/ListViewCustomDraw.au3"
 #include "include/config.au3"
@@ -409,6 +410,35 @@ Func SetBusy($bBusy)
 EndFunc ;==>SetBusy
 
 
+; wait for a process started with Run() and return its exit code
+; returns 1 with @extended = exit code, mirroring ProcessWaitClose
+; ProcessWaitClose's @extended can report 259 (STILL_ACTIVE) under Wine for a process that has
+; already finished, so read the exit code from a handle opened right after Run instead
+; falls back to ProcessWaitClose if the handle cannot be opened
+Func WaitForExitCode($iPid)
+	If ($iPid = 0) Then Return SetExtended(-1, 0) ; Run failed
+	Local $hProc = _WinAPI_OpenProcess(BitOR($PROCESS_QUERY_LIMITED_INFORMATION, $STANDARD_RIGHTS_SYNCHRONIZE), False, $iPid)
+	If $hProc = 0 Then
+		Local $iRet = ProcessWaitClose($iPid)
+		Return SetExtended(@extended, $iRet)
+	EndIf
+	; poll rather than block, so the window keeps painting like it did under ProcessWaitClose
+	; (no timeout, as before); stops on WAIT_OBJECT_0 or WAIT_FAILED
+	While (_WinAPI_WaitForSingleObject($hProc, 0) = 258) ; WAIT_TIMEOUT
+		Sleep(50)
+	WEnd
+	; if still 259 here it is reported as is, so the caller shows an error rather than hiding it
+	; called directly: _WinAPI_GetExitCodeProcess returns 0 (success) when the call itself fails
+	Local $iExit = -1 ; unreadable counts as a failure, never success
+	Local $aCall = DllCall("kernel32.dll", "bool", "GetExitCodeProcess", "handle", $hProc, "dword*", 0)
+	If (Not @error) Then
+		If ($aCall[0]) Then $iExit = $aCall[2]
+	EndIf
+	_WinAPI_CloseHandle($hProc)
+	Return SetExtended($iExit, 1)
+EndFunc ;==>WaitForExitCode
+
+
 ; run "RaidTool -d" and parse the listing of measurements on the RAID
 ; on success sets $aRows and $iUnknown; on failure sets $sReason
 Func RaidSnapshot(ByRef $aRows, ByRef $iUnknown, ByRef $sReason)
@@ -496,7 +526,7 @@ Func OnGet()
 	LogMessage("AdjValidate" & $cmdArgs & $ShimsetFilename)
 	Local $runCmd = @ComSpec & ' /s /c ""' & $AdjValidate & '"' & $cmdArgs & $ShimsetFilename & '"'
 	Local $ProcID = Run($runCmd, @WorkingDir, @SW_HIDE, $STDERR_CHILD + $STDOUT_CHILD)
-	Local $procRet = ProcessWaitClose($ProcID)
+	Local $procRet = WaitForExitCode($ProcID)
 	Local $procErr = @extended
 	Local $sOut = StdoutRead($ProcID)
 	Local $sErr = StderrRead($ProcID)
@@ -664,7 +694,7 @@ Func OnSet()
 	LogMessage("AdjValidate" & $cmdArgs & $shimvalStr)
 	Local $runCmd = @ComSpec & ' /s /c ""' & $AdjValidate & '"' & $cmdArgs & $shimvalStr & '"'
 	Local $ProcID = Run($runCmd, @WorkingDir, @SW_HIDE, $STDERR_CHILD + $STDOUT_CHILD)
-	Local $procRet = ProcessWaitClose($ProcID)
+	Local $procRet = WaitForExitCode($ProcID)
 	Local $procErr = @extended
 	Local $sOut = StdoutRead($ProcID)
 	Local $sErr = StderrRead($ProcID)
