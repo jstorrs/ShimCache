@@ -768,7 +768,7 @@ Func PatientCheckGate($fname)
 				Return False
 			EndIf
 			$sTitle = $PgmName & ": DIFFERENT PATIENT"
-			$sBody = $sShimset & @CRLF & $aV[1] & $sCurLine & @CRLF & @CRLF & "Another patient has been scanned since these shims were saved. Apply them anyway?"
+			$sBody = $sShimset & @CRLF & $aV[1] & $sCurLine & @CRLF & @CRLF & "Apply them anyway?"
 		Case Else
 			$sTitle = $PgmName & ": Patient not verified"
 			$sBody = $sShimset & @CRLF & $aV[1] & @CRLF & @CRLF & "Cannot confirm these shims belong to the patient now in the scanner. Apply them anyway?"
