@@ -785,9 +785,11 @@ EndFunc ;==>MaxShimCount
 
 ; show the 3rd-order columns only if some shimset has 3rd-order values (B0/FASTMAP)
 ; call with the list empty, before adding rows; returns True if the columns changed
-; with no valid shimsets ($nShims = 0) the order is unknown, so keep the current columns
+; with no valid shimsets ($nShims = 0) the build default $CFG_INITIAL_SHIM_CHANNELS (config.au3) decides,
+; so deleting every shimset returns the columns to that default
 Func SetThirdOrderColumns($nShims)
-	If (($GUIMode == 1) Or ($nShims == 0)) Then Return False
+	If ($GUIMode == 1) Then Return False
+	If ($nShims == 0) Then $nShims = $CFG_INITIAL_SHIM_CHANNELS	; no shimsets yet: use the build default
 
 	Local $want = ($nShims > 8)
 	If ($want == $listHasThirdOrder) Then Return False

@@ -1,13 +1,16 @@
 #include-once
 
 ; -----------------------------------------------------------------------------
-; Build-time settings for the RaidTool patient check. Edit these for your scanner before compiling ShimCache.
-;
+; Build-time settings for ShimCache. Edit these for your scanner before compiling.
+; -----------------------------------------------------------------------------
+
+; shim list layout
+Global Const $CFG_INITIAL_SHIM_CHANNELS = 12	; columns shown before any shimset exists: 8 = 2nd order, 12 = with 3rd order
+
+; RaidTool patient check
 ; The address and port are compiled in on purpose. RaidTool.exe also has
 ; destructive operations (-i formats the RAID; -A and -R write to it). Only -d
 ; is ever run, and its arguments come only from these constants.
-; -----------------------------------------------------------------------------
-
 Global Const $CFG_PC_ENABLED = True	; patient check on/off
 Global Const $CFG_RAIDTOOL = ""	; full path to RaidTool.exe; "" = search MED_BIN, CustomerBin, MEDHOME\bin (never C:\Temp; set this for test builds)
 Global Const $CFG_RAID_ADDRESS = "192.168.2.2"
