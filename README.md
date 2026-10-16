@@ -37,7 +37,7 @@ The `-k` flag is required, because RaidTool anonymizes the listing without it. O
 ### Limits
 
 - RaidTool lists acquired data, not the registered patient. If patient B is registered after Get and Set is used before B's first measurement starts, the check cannot tell. As soon as B's first measurement is running (status "wip"), the check sees B. In practice a localizer always runs before shims are set. `$CFG_IDLE_MINUTES` can narrow this window if wanted.
-- With the idle check enabled, it is skipped while the newest measurement is running (wip): an aborted scan ends as cld, and the patient cannot change during an acquisition. A measurement that stayed wip without ever closing (for example after a recon crash) would keep the idle check off until another patient's measurement appears; `$CFG_MAX_AGE_HOURS` still applies.
+- With the idle check enabled, it is skipped while the newest measurement is running (wip): an aborted scan ends as cld, and the patient cannot change during an acquisition. Aborted scans have been confirmed to end as cld. The RAID holds raw data written before recon, so a recon crash should not leave a measurement wip unless it aborts the acquisition. A measurement that somehow stayed wip without ever closing would keep the idle check off until another patient's measurement appears; `$CFG_MAX_AGE_HOURS` still applies.
 - Names longer than the 32-character listing field are compared on their last 32 characters only. A very long name (62 characters seen on VE11C) is truncated by RaidTool and loses the birth date. A patient registered without a birth date is compared on the name alone.
 - The idle check, if enabled, assumes the scanner and this computer share a clock (the recon system takes its time from the console at boot).
 - The check relies on RaidTool listing newest-first.
@@ -60,12 +60,12 @@ To test end to end, configure both fakes and point `SHIMCACHE_FAKE_RAID` at a sc
 
 ## Before enabling on a new scanner
 
-Build with `$CFG_PC_ENABLED = False` until this list passes. The listing format (32-character right-aligned patient column, cld/wip status, newest-first) has been confirmed on one system; the checklist still applies to each new scanner and software version.
+Build with `$CFG_PC_ENABLED = False` until this list passes. The listing format (32-character right-aligned patient column, cld/wip status, newest-first), aborted scans ending as cld, and detection of a patient change have been confirmed on one system; the checklist still applies to each new scanner and software version.
 
 - Capture `RaidTool -a <ip> -p <port> -k -t 10 -d` and confirm: the header contains "FileID", the closed-status token is "cld", the patient column is 32 characters and right-aligned, and the listing is newest-first.
 - Check a non-ASCII name, and names of about 40 and of 60+ characters.
 - Find where RaidTool.exe lives, and the RAID address and port (especially on XA).
 - Confirm an in-progress measurement shows status wip with the patient column filled.
-- Confirm that an aborted measurement, and one interrupted by a recon or host restart, ends as cld and never stays wip.
+- Confirm that an aborted measurement ends as cld and never stays wip (a host restart during acquisition has not been tried).
 - Confirm that a protocol name of 32 or more characters parses (not yet seen in a capture; it may abut the MeasID column).
 - Check that Get followed by Set gives VERIFIED, and that registering a new patient and scanning a localizer gives MISMATCH.
