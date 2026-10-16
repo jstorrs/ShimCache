@@ -16,7 +16,7 @@ Edit `include/config.au3` before compiling (64-bit AutoIt build, as before). All
 - `$CFG_RAID_ADDRESS` [192.168.2.2] and `$CFG_RAID_PORT` [8010]: where RaidTool finds the RAID.
 - `$CFG_RAID_TIMEOUT_SEC` [10]: passed to RaidTool as `-t`. The process is killed after this plus 5 s.
 - `$CFG_PAT_FIELD_WIDTH` [32]: width of the patient column in the `RaidTool -d` listing.
-- `$CFG_IDLE_MINUTES` [30]: Set is unverified if the newest measurement finished more than this many minutes ago (a measurement of the same patient that is still running counts as current). 0 = off.
+- `$CFG_IDLE_MINUTES` [0]: Set is unverified if the newest measurement finished more than this many minutes ago (a measurement of the same patient that is still running counts as current). 0 = off. Off by default: long gaps within one session are normal (a phantom left running), and a new patient gets at least a localizer before anyone sets shims, which the check reports as a mismatch.
 - `$CFG_MAX_AGE_HOURS` [12]: Set is unverified if the shims were saved longer ago than this. 0 = off.
 - `$CFG_BLOCK_ON_MISMATCH` [False]: True refuses a mismatch outright instead of asking.
 
@@ -28,7 +28,7 @@ Set lists the RAID again and compares it with the trailer. There are three outco
 
 - VERIFIED: no other patient has been measured since Get. Set proceeds silently.
 - MISMATCH: a measurement of a different patient, completed or still running, is on the RAID after the one recorded at Get. A warning is shown, default No. With `$CFG_BLOCK_ON_MISMATCH = True` Set is refused instead.
-- UNVERIFIED: the check cannot tell. Causes include a file saved without a readable trailer (older version, or RaidTool failed at Get), RaidTool missing or timing out at Set, a listing older than the shims (RAID cleared or IDs reset), no measurement with readable patient information on the RAID, a newer measurement that could not be read, listing lines that could not be parsed, shims older than `$CFG_MAX_AGE_HOURS`, the newest measurement finished more than `$CFG_IDLE_MINUTES` minutes ago (a measurement of the same patient that is still running counts as current), or scanner and computer clocks that disagree. A confirmation is shown, default No.
+- UNVERIFIED: the check cannot tell. Causes include a file saved without a readable trailer (older version, or RaidTool failed at Get), RaidTool missing or timing out at Set, a listing older than the shims (RAID cleared or IDs reset), no measurement with readable patient information on the RAID, a newer measurement that could not be read, listing lines that could not be parsed, shims older than `$CFG_MAX_AGE_HOURS`, the newest measurement finished more than `$CFG_IDLE_MINUTES` minutes ago (if enabled), or scanner and computer clocks that disagree. A confirmation is shown, default No.
 
 FASTMAP mode is not checked.
 
@@ -36,10 +36,10 @@ The `-k` flag is required, because RaidTool anonymizes the listing without it. O
 
 ### Limits
 
-- RaidTool lists acquired data, not the registered patient. If patient A is scanned after Get, then patient B is registered, and Set is used before B's first measurement starts, and within `$CFG_IDLE_MINUTES` of A's last measurement finishing, the check cannot tell. As soon as B's first measurement is running (status "wip"), the check sees B. The idle limit narrows this window.
-- While the newest measurement is running (wip), the idle check is skipped: an aborted scan ends as cld, and the patient cannot change during an acquisition. A measurement that stayed wip without ever closing (for example after a recon crash) would keep the idle check off until another patient's measurement appears; `$CFG_MAX_AGE_HOURS` still applies.
+- RaidTool lists acquired data, not the registered patient. If patient B is registered after Get and Set is used before B's first measurement starts, the check cannot tell. As soon as B's first measurement is running (status "wip"), the check sees B. In practice a localizer always runs before shims are set. `$CFG_IDLE_MINUTES` can narrow this window if wanted.
+- With the idle check enabled, it is skipped while the newest measurement is running (wip): an aborted scan ends as cld, and the patient cannot change during an acquisition. A measurement that stayed wip without ever closing (for example after a recon crash) would keep the idle check off until another patient's measurement appears; `$CFG_MAX_AGE_HOURS` still applies.
 - Names longer than the 32-character listing field are compared only on what the listing shows.
-- The idle check assumes the scanner and this computer share a clock (the recon system takes its time from the console at boot).
+- The idle check, if enabled, assumes the scanner and this computer share a clock (the recon system takes its time from the console at boot).
 - The check relies on RaidTool listing newest-first.
 
 ### Privacy
@@ -54,7 +54,7 @@ The trailer stores a 16-hex-character salted hash of "Name,BirthDate". This is p
 
 `tests\fake_adjvalidate.cmd` stands in for AdjValidate. Set `$CFG_ADJVALIDATE` to its path. Set stores the values it is given, and Get returns the last values set, or a default line if none were set. State is kept in `%TEMP%\shimcache_fake_adj_shim.txt` and `%TEMP%\shimcache_fake_adj_txscale.txt`. Options, set as environment variables: `FAKE_ADJ_SECOND_ORDER` makes the default B0 Get return 8 values instead of 12; `FAKE_ADJ_NOPROT` makes every call fail as if no protocol were open; `FAKE_ADJ_RESET` deletes both state files first. Deleting the files by hand also resets it.
 
-To test end to end, configure both fakes and point `SHIMCACHE_FAKE_RAID` at a scratch copy of `tests\fixtures\raid_sample.txt`. ShimCache's environment is fixed when it starts, so edit the file's contents rather than the variable. The newest row of that fixture (104) is a running (wip) measurement, so a plain Get then Set gives VERIFIED: Get records row 104, and the idle check is skipped while that patient's measurement is running. To see MISMATCH, click Get, then add a newer row for a different patient at the top of the scratch copy (the listing is newest-first), copying the exact column layout of a fixture row, and click Set: expect the DIFFERENT PATIENT dialog.
+To test end to end, configure both fakes and point `SHIMCACHE_FAKE_RAID` at a scratch copy of `tests\fixtures\raid_sample.txt`. ShimCache's environment is fixed when it starts, so edit the file's contents rather than the variable. The newest row of that fixture (104) is a running (wip) measurement, so a plain Get then Set gives VERIFIED: Get records row 104 (if `$CFG_IDLE_MINUTES` is enabled, it is skipped while that patient's measurement is running). To see MISMATCH, click Get, then add a newer row for a different patient at the top of the scratch copy (the listing is newest-first), copying the exact column layout of a fixture row, and click Set: expect the DIFFERENT PATIENT dialog.
 
 `tests\ShimCacheGui_test.au3` runs the whole thing automatically. It launches a patched copy of ShimCache (in a scratch directory under `%TEMP%`, deleted afterwards) against both fakes and drives Get, Set and the patient check dialogs through the real window, in B0 and B1 mode, including a RaidTool that hangs. Run it from a desktop session with `AutoIt3.exe /ErrorStdOut tests\ShimCacheGui_test.au3`. It takes about 1 to 2 minutes; do not touch the mouse or keyboard while it runs. It prints PASS or FAIL for each check and a final `RESULT` line, and exits 0 on success. It refuses to run while ShimCache is open, and it never calls the real AdjValidate or RaidTool. Under Wine on Linux it needs a display: `xvfb-run -a wine AutoIt3_x64.exe /ErrorStdOut tests\ShimCacheGui_test.au3` (without one, AutoIt exits silently with code 0, so scripted runs should check for the `RESULT` line).
 

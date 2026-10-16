@@ -18,6 +18,6 @@ Global Const $CFG_RAID_ADDRESS = "192.168.2.2"
 Global Const $CFG_RAID_PORT = 8010
 Global Const $CFG_RAID_TIMEOUT_SEC = 10	; passed to RaidTool -t; process killed after this + 5 s
 Global Const $CFG_PAT_FIELD_WIDTH = 32	; width of the patient column in the RaidTool -d listing
-Global Const $CFG_IDLE_MINUTES = 30	; 0 = off
+Global Const $CFG_IDLE_MINUTES = 0	; 0 = off (default: a new patient gets at least a localizer before Set, which is a MISMATCH)
 Global Const $CFG_MAX_AGE_HOURS = 12	; 0 = off
 Global Const $CFG_BLOCK_ON_MISMATCH = False	; True = refuse a mismatch outright instead of asking

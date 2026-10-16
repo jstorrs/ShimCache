@@ -16,6 +16,7 @@
 
 #include <File.au3>
 #include <Date.au3>
+#include "..\include\config.au3"	; $CFG_IDLE_MINUTES decides the idle scenario's outcome
 
 Opt('MustDeclareVars', 1)
 Opt('WinTitleMatchMode', 3)
@@ -347,7 +348,11 @@ Func ScenarioB0($sWork, $sBase, $sSame, $sOther, $sIdle)
 	; idle: Get and Set with the newest measurement closed 45 min ago
 	SetRaid($sIdle)
 	Get("Get idle")
-	ExpectDialog("idle scanner", 0, "Patient not verified", "No", "No measurement has finished in the last")
+	If ($CFG_IDLE_MINUTES > 0 And $CFG_IDLE_MINUTES < 45) Then
+		ExpectDialog("idle scanner", 0, "Patient not verified", "No", "No measurement has finished in the last")
+	Else
+		ExpectOK("idle scanner, idle check off or longer", 0)
+	EndIf
 
 	; README recipe: sample fixture, newest row is wip
 	SetRaid(FileRead(@ScriptDir & "\fixtures\raid_sample.txt"))
