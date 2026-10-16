@@ -6,7 +6,8 @@ rem The expected argument string below must match the values in include/config.a
 rem ShimCache reports every fake failure as "unrecognized RaidTool output"; run the fake
 rem by hand to see the real failure reason.
 rem Set SHIMCACHE_FAKE_RAID_HANG (to anything) to stall ~30 s first, to test the timeout.
-if not "%*"=="-a 192.168.2.2 -p 8010 -k -t 10 -d" (
+rem Compare argument by argument: %* can carry trailing spaces depending on how cmd was started.
+if not "%~1|%~2|%~3|%~4|%~5|%~6|%~7|%~8|%~9"=="-a|192.168.2.2|-p|8010|-k|-t|10|-d|" (
 	echo unexpected arguments: %* >&2
 	exit /b 9
 )
