@@ -42,29 +42,29 @@ EndIf
 
 $bOk = True
 For $i = 0 To 4
-	If $aRows[$i][$PC_FID] <> 100 + $i Then $bOk = False
+	If $aRows[$i][$PC_FID] <> 104 - $i Then $bOk = False
 Next
-Assert($bOk, "sample: FIDs 100-104 in order")
+Assert($bOk, "sample: FIDs 104-100 in order (newest first)")
 
-Assert($aRows[4][$PC_STATUS] == "?", "row 104: STATUS is ?")
-Assert($aRows[4][$PC_PAT] == "", "row 104: PAT is empty")
+Assert($aRows[0][$PC_STATUS] == "?", "row 104: STATUS is ?")
+Assert($aRows[0][$PC_PAT] == "", "row 104: PAT is empty")
 
-Assert($aRows[0][$PC_PAT] == "DOE^JOHN,19800101", "row 100: PAT (right-aligned)")
+Assert($aRows[4][$PC_PAT] == "DOE^JOHN,19800101", "row 100: PAT (right-aligned)")
 
 ; Row 101 has the same patient LEFT-aligned. The window slides left into the
 ; protocol, so the key changes. A left-aligned layout causes safe mismatch
 ; noise, never a false match.
-Assert($aRows[1][$PC_STATUS] == "cld", "row 101: STATUS cld (left-aligned)")
-Assert($aRows[1][$PC_PATKEY] <> $aRows[0][$PC_PATKEY], "row 101: PATKEY differs from row 100 (safe mismatch)")
+Assert($aRows[3][$PC_STATUS] == "cld", "row 101: STATUS cld (left-aligned)")
+Assert($aRows[3][$PC_PATKEY] <> $aRows[4][$PC_PATKEY], "row 101: PATKEY differs from row 100 (safe mismatch)")
 
 Assert($aRows[2][$PC_PROT] == "t1 mpr sag iso", "row 102: PROT with spaces")
 Assert($aRows[2][$PC_PAT] == "DOE^JOHN,19800101", "row 102: PAT")
-Assert($aRows[2][$PC_PATKEY] == $aRows[0][$PC_PATKEY], "row 102: PATKEY equals row 100")
+Assert($aRows[2][$PC_PATKEY] == $aRows[4][$PC_PATKEY], "row 102: PATKEY equals row 100")
 
-Assert($aRows[3][$PC_PATKEY] <> $aRows[0][$PC_PATKEY], "row 103: PATKEY differs from row 100")
+Assert($aRows[1][$PC_PATKEY] <> $aRows[4][$PC_PATKEY], "row 103: PATKEY differs from row 100")
 
-Assert($aRows[0][$PC_CREATE] == "2026/10/15 10:00:00", "row 100: CREATE")
-Assert($aRows[0][$PC_CLOSE] == "2026/10/15 10:00:30", "row 100: CLOSE")
+Assert($aRows[4][$PC_CREATE] == "2026/10/15 10:00:00", "row 100: CREATE")
+Assert($aRows[4][$PC_CLOSE] == "2026/10/15 10:00:30", "row 100: CLOSE")
 
 ; invariant: every cld row has a 16-hex key, every ? row has none
 $bOk = True

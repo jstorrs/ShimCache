@@ -38,6 +38,8 @@ Const $PgmVersion = "2024.12.03"
 #include <Misc.au3>
 #include "include/GuiListViewEx.au3"
 #include "include/ListViewCustomDraw.au3"
+#include "include/config.au3"
+#include "include/PatientCheck.au3"
 
 Opt('MustDeclareVars', 1)
 Opt("GUIOnEventMode", 1)
@@ -47,6 +49,7 @@ Global $GUIMode = 0
 
 Global $PgmName, $ShimFilePrefix, $ShimFileSuffix	; global text
 Global $AdjValidate, $ScratchDir					; filenames/paths
+Global $idGet = 0, $idSet = 0							; Get/Set buttons (0 if not created in this mode)
 Global $hGUI, $idExit, $hList, $idList, $idEdit		; window handles
 Global $winW, $winH									; window dimensions (minimum)
 Global $winWFull, $winMinW							; width with 3rd-order columns; narrowest that fits the buttons
@@ -58,6 +61,8 @@ Global $listHasThirdOrder = True
 Global $FM_LastLog = -1								; remember last displayed FASTMAP logfile
 Global $NoOfGPAs = 1								; number of GPAs in system (important >XA60)
 Global $debugLog = 0								; debug log level (0 = release, 1 = debug)
+Global $RaidTool = ""									; resolved path to RaidTool.exe
+Global $PC_Enabled = False								; runtime switch for the patient check
 
 ; for multi-line list view (B1 mode)
 Global $hListFont, $fListHasFocus=0, $listRows, $listData[1][1]
@@ -224,12 +229,12 @@ Func _Main()
 		; general UI for B0/B1 shimming
 		$left = $lhB
 		$btnW = 50
-		Local $GetID = GUICtrlCreateButton("Get", $left, $topB, $btnW, $btnH)
-		GUICtrlSetResizing($GetID, $GUI_DOCKSIZE + $GUI_DOCKTOP + $GUI_DOCKLEFT)
+		$idGet = GUICtrlCreateButton("Get", $left, $topB, $btnW, $btnH)
+		GUICtrlSetResizing($idGet, $GUI_DOCKSIZE + $GUI_DOCKTOP + $GUI_DOCKLEFT)
 		$left += $btnW + $hPad
 		$btnW = 50
-		Local $SetID = GUICtrlCreateButton("Set", $left, $topB, $btnW, $btnH)
-		GUICtrlSetResizing($SetID, $GUI_DOCKSIZE + $GUI_DOCKTOP + $GUI_DOCKLEFT)
+		$idSet = GUICtrlCreateButton("Set", $left, $topB, $btnW, $btnH)
+		GUICtrlSetResizing($idSet, $GUI_DOCKSIZE + $GUI_DOCKTOP + $GUI_DOCKLEFT)
 		;$left += $btnW + $hPad
 		;$btnW = 60
 		;Local $RefreshID = GUICtrlCreateButton("Refresh", $left, $topB, $btnW, $btnH)
@@ -248,8 +253,8 @@ Func _Main()
 		GUICtrlSetResizing($ClearAllID, $GUI_DOCKSIZE + $GUI_DOCKTOP + $GUI_DOCKLEFT)
 
 		; button press callbacks
-		GUICtrlSetOnEvent($GetID, "OnGet")
-		GUICtrlSetOnEvent($SetID, "OnSet")
+		GUICtrlSetOnEvent($idGet, "OnGet")
+		GUICtrlSetOnEvent($idSet, "OnSet")
 		;GUICtrlSetOnEvent($RefreshID, "UpdateListView")
 		GUICtrlSetOnEvent($ClearID, "OnClear")
 		GUICtrlSetOnEvent($ClearUnSelID, "OnClearUnselected")
@@ -324,18 +329,10 @@ Func _Setup()
 	; verify location of AdjValidate program and scratch directory
 	; since XA, AdjValidate will be in either MED_BIN or CustomerBin
 	; fallback to MEDHOME\bin on older versions
-	$AdjValidate = EnvGet("MED_BIN") & "\AdjValidate.exe"
-	If (FileExists($AdjValidate) == 0) Then
-		$AdjValidate = EnvGet("CustomerBin") & "\AdjValidate.exe"
-		If (FileExists($AdjValidate) == 0) Then
-			$AdjValidate = EnvGet("MEDHOME") & "\bin\AdjValidate.exe"
-			If (FileExists($AdjValidate) == 0) Then
-				$AdjValidate = "C:\Temp\AdjValidate.exe" ; for testing only
-			EndIf
-		EndIf
-	EndIf
+	$AdjValidate = FindSiemensTool("AdjValidate.exe")
+	If ($AdjValidate == "" And FileExists("C:\Temp\AdjValidate.exe")) Then $AdjValidate = "C:\Temp\AdjValidate.exe" ; for testing only
 
-	If (FileExists($AdjValidate) == 0) Then
+	If ($AdjValidate == "") Then
 		MsgBox($MB_SYSTEMMODAL + $MB_TOPMOST, $PgmName & ": Setup Error", "ERROR! Could not locate AdjValidate.exe!" & @CRLF & @CRLF _
 			   & "Please make sure it is installed and matches this software version!")
 		Exit 1
@@ -359,7 +356,118 @@ Func _Setup()
 
 	FileChangeDir($ScratchDir)
 	LogMessage("Working directory is " & $ScratchDir)
+
+	; patient check (FASTMAP is excluded in v1)
+	If ($GUIMode == 2) Then
+		$PC_Enabled = False
+	ElseIf (Not $CFG_PC_ENABLED) Then
+		LogMessage("Patient check disabled in this build")
+	Else
+		$PC_Enabled = True
+		$RaidTool = ($CFG_RAIDTOOL <> "" ? $CFG_RAIDTOOL : FindSiemensTool("RaidTool.exe"))
+		If ($RaidTool <> "" And Not FileExists($RaidTool)) Then $RaidTool = ""
+		If ($RaidTool == "") Then
+			; stay enabled so that Set fails safe by asking for confirmation
+			LogMessage("WARNING: RaidTool.exe not found; every Set will ask for confirmation")
+		Else
+			LogMessage("Patient check using " & $RaidTool & " (" & $CFG_RAID_ADDRESS & ":" & $CFG_RAID_PORT & ")")
+		EndIf
+	EndIf
 EndFunc ;==>_Setup
+
+
+; return the first existing copy of a Siemens tool, or "" if none is found
+Func FindSiemensTool($exe)
+	; since XA, tools will be in either MED_BIN or CustomerBin
+	; fallback to MEDHOME\bin on older versions
+	Local $aDirs[3] = [EnvGet("MED_BIN"), EnvGet("CustomerBin"), EnvGet("MEDHOME") & "\bin"]
+	If (EnvGet("MEDHOME") == "") Then $aDirs[2] = ""
+	For $i = 0 To 2
+		If ($aDirs[$i] <> "" And FileExists($aDirs[$i] & "\" & $exe) == 1) Then Return $aDirs[$i] & "\" & $exe
+	Next
+	Return ""
+EndFunc ;==>FindSiemensTool
+
+
+; disable/enable the Get and Set buttons and show a busy cursor during slow operations
+Func SetBusy($bBusy)
+	Local $iState = ($bBusy ? $GUI_DISABLE : $GUI_ENABLE)
+	If ($idGet <> 0) Then GUICtrlSetState($idGet, $iState)
+	If ($idSet <> 0) Then GUICtrlSetState($idSet, $iState)
+	If ($bBusy) Then
+		GUISetCursor(15, 1, $hGUI)
+	Else
+		GUISetCursor(2, 0, $hGUI)
+	EndIf
+EndFunc ;==>SetBusy
+
+
+; run "RaidTool -d" and parse the listing of measurements on the RAID
+; on success sets $aRows and $iUnknown; on failure sets $sReason
+Func RaidSnapshot(ByRef $aRows, ByRef $iUnknown, ByRef $sReason)
+	; clear outputs so no failure path leaves stale values from an earlier call
+	$sReason = ""
+	$iUnknown = 0
+	Local $aEmpty[0][$PC_NCOLS]
+	$aRows = $aEmpty
+	If ($RaidTool == "") Then
+		$sReason = "RaidTool.exe not found"
+		Return False
+	EndIf
+
+	; -d is the only operation ever run; the other arguments come only from config.au3
+	Local $sArgs = ' -a ' & $CFG_RAID_ADDRESS & ' -p ' & $CFG_RAID_PORT & ' -k -t ' & $CFG_RAID_TIMEOUT_SEC & ' -d'
+	Local $sCmd = '"' & $RaidTool & '"' & $sArgs
+	If (StringRegExp($RaidTool, '(?i)\.(cmd|bat)$')) Then $sCmd = @ComSpec & ' /s /c ""' & $RaidTool & '"' & $sArgs & '"'
+
+	Local $bOk = False, $bTimedOut = False
+	Local $sOut = "", $bEof = 0, $iGot = 0, $iParseErr = 0, $iParseExt = 0
+	Local $aParsed
+	SetBusy(True)
+	LogMessage("Checking patient on RAID...")
+	Local $hTimer = TimerInit()
+	Local $pid = Run($sCmd, @WorkingDir, @SW_HIDE, $STDOUT_CHILD + $STDERR_CHILD)
+	If ($pid == 0) Then
+		$sReason = "could not start RaidTool"
+	Else
+		; drain both pipes while the process runs, so a large listing cannot fill the buffer and deadlock
+		; stderr is discarded: it could contain patient data
+		While 1
+			$sOut &= StdoutRead($pid)
+			$bEof = @error
+			$iGot = @extended
+			StderrRead($pid)
+			$iGot += @extended
+			If ($bEof) Then ExitLoop
+			If (TimerDiff($hTimer) > ($CFG_RAID_TIMEOUT_SEC + 5) * 1000) Then
+				ProcessClose($pid)
+				$bTimedOut = True
+				$sReason = "RaidTool timed out after " & ($CFG_RAID_TIMEOUT_SEC + 5) & " s"
+				ExitLoop
+			EndIf
+			If ($iGot == 0) Then Sleep(50)
+		WEnd
+		StdioClose($pid)
+		If (Not $bTimedOut) Then
+			; the exit code is not checked: RaidTool lists newest-first (RAID space is freed from the end of the list),
+			; so a truncated listing only loses old rows, which the verdict never examines
+			$aParsed = PC_ParseRaidList($sOut, $CFG_PAT_FIELD_WIDTH)
+			$iParseErr = @error
+			$iParseExt = @extended
+			If ($iParseErr <> 0) Then
+				$sReason = "unrecognized RaidTool output"
+			Else
+				$aRows = $aParsed
+				$iUnknown = $iParseExt
+				$bOk = True
+				; never log $sOut: it names every patient on the RAID
+				LogMessage("RAID listing: " & UBound($aRows) & " measurements" & ($iUnknown > 0 ? ", " & $iUnknown & " unreadable lines" : ""))
+			EndIf
+		EndIf
+	EndIf
+	SetBusy(False)
+	Return $bOk
+EndFunc ;==>RaidSnapshot
 
 
 ; get the current shims, save to file
