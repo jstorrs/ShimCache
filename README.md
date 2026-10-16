@@ -4,3 +4,58 @@ GUI tool for managing B0/B1 shim settings on Siemens scanners
 Requires AdjValidate tool from Siemens
 
 Compile with AutoIt v3
+
+## Building for your scanner
+
+Edit `include/config.au3` before compiling (64-bit AutoIt build, as before). All settings are compiled in. Defaults are shown in brackets.
+
+- `$CFG_INITIAL_SHIM_CHANNELS` [12]: columns shown before any shimset exists. 8 = 2nd order, 12 = with 3rd order.
+- `$CFG_PC_ENABLED` [True]: patient check on or off.
+- `$CFG_RAIDTOOL` [""]: full path to RaidTool.exe. An empty string searches MED_BIN, CustomerBin and MEDHOME\bin (never C:\Temp). Set it for test builds.
+- `$CFG_RAID_ADDRESS` [192.168.2.2] and `$CFG_RAID_PORT` [8010]: where RaidTool finds the RAID.
+- `$CFG_RAID_TIMEOUT_SEC` [10]: passed to RaidTool as `-t`. The process is killed after this plus 5 s.
+- `$CFG_PAT_FIELD_WIDTH` [32]: width of the patient column in the `RaidTool -d` listing.
+- `$CFG_IDLE_MINUTES` [30]: Set is unverified if the last finished measurement on the RAID ended longer ago than this. 0 = off.
+- `$CFG_MAX_AGE_HOURS` [12]: Set is unverified if the shims were saved longer ago than this. 0 = off.
+- `$CFG_BLOCK_ON_MISMATCH` [False]: True refuses a mismatch outright instead of asking.
+
+## Patient check
+
+Get records who is on the RAID. It runs `RaidTool -d -k` and appends a `#ShimCachePatientCheck v1` trailer to the shim file, holding a hashed patient key, a FileID and a time. Older ShimCache versions read these files unchanged.
+
+Set lists the RAID again and compares it with the trailer. There are three outcomes:
+
+- VERIFIED: no other patient has been measured since Get. Set proceeds silently.
+- MISMATCH: a completed measurement of a different patient is on the RAID after the one recorded at Get. A warning is shown, default No. With `$CFG_BLOCK_ON_MISMATCH = True` Set is refused instead.
+- UNVERIFIED: the check cannot tell. Causes include a file saved without a readable trailer (older version, or RaidTool failed at Get), RaidTool missing or timing out at Set, a listing older than the shims (RAID cleared or IDs reset), no completed measurement on the RAID, a newer measurement still in progress or unreadable, listing lines that could not be parsed, shims older than `$CFG_MAX_AGE_HOURS`, no measurement finished within `$CFG_IDLE_MINUTES`, or scanner and computer clocks that disagree. A confirmation is shown, default No.
+
+FASTMAP mode is not checked.
+
+The `-k` flag is required, because RaidTool anonymizes the listing without it. Only `-d` is ever run, with arguments compiled in from config.au3, because RaidTool also has destructive options (`-i` formats the RAID; `-A` and `-R` write to it).
+
+### Limits
+
+- RaidTool lists acquired data, not the registered patient. If patient A is scanned after Get, then patient B is registered, and Set is used before B's first measurement finishes, and within `$CFG_IDLE_MINUTES`, the check cannot tell. The idle limit narrows this window.
+- Names longer than the 32-character listing field are compared only on what the listing shows.
+- The idle check assumes the scanner and this computer share a clock (the recon system takes its time from the console at boot).
+- The check relies on RaidTool listing newest-first.
+
+### Privacy
+
+The trailer stores a 16-hex-character salted hash of "Name,BirthDate". This is pseudonymous, not anonymous. Shim files must not be treated as de-identified. The log never contains patient names. Dialogs may show the patient of the most recent measurement.
+
+## Testing
+
+`tests\PatientCheck_test.au3` runs with `AutoIt3.exe /ErrorStdOut tests\PatientCheck_test.au3` and exits 0 on success.
+
+`tests\fake_raidtool.cmd` stands in for RaidTool on a Windows machine without a scanner. Set `$CFG_RAIDTOOL` to its path, and set the environment variable `SHIMCACHE_FAKE_RAID` to a listing file such as `tests\fixtures\raid_sample.txt`. Its expected arguments must match config.au3. Set `SHIMCACHE_FAKE_RAID_HANG` to test the timeout.
+
+## Before enabling on a new scanner
+
+Build with `$CFG_PC_ENABLED = False` until this list passes.
+
+- Capture `RaidTool -a <ip> -p <port> -k -t 10 -d` and confirm: the header contains "FileID", the closed-status token is "cld", the patient column is 32 characters and right-aligned, and the listing is newest-first.
+- Check a non-ASCII name and a name longer than 32 characters.
+- Find where RaidTool.exe lives, and the RAID address and port (especially on XA).
+- See how an in-progress measurement appears in the listing.
+- Check that Get followed by Set gives VERIFIED, and that registering a new patient and scanning a localizer gives MISMATCH.

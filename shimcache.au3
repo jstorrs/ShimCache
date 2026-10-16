@@ -18,9 +18,11 @@
 ;                     all current versions including Numaris X (XA30A)
 ;   2024.12.03 - EA - Updated AdjValidate syntax for XA60A+ multi-GPA configs,
 ;                     improved error handling and reporting
+;   2026.10.15 - JS - Added RaidTool patient check before Set; build-time
+;                     config.au3 (incl. initial shim columns)
 ; -----------------------------------------------------------------------------
 
-Const $PgmVersion = "2024.12.03"
+Const $PgmVersion = "2026.10.15"
 
 #AutoIt3Wrapper_Res_Icon_Add=include/icons/b0_icon.ico
 #AutoIt3Wrapper_Res_Icon_Add=include/icons/b1_icon.ico
