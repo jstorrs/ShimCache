@@ -545,6 +545,27 @@ Func OnGet()
 		Return
 	EndIf
 
+	; record who is on the RAID now, so Set can check it is still the same patient
+	; unreadable lines ($iRaidUnknown) do not block this; Set re-checks the listing and treats them as UNVERIFIED
+	If ($PC_Enabled) Then
+		Local $aRaidRows, $iRaidUnknown, $sRaidReason
+		If (RaidSnapshot($aRaidRows, $iRaidUnknown, $sRaidReason)) Then
+			Local $sTrailer = PC_FormatBaseline(PC_MakeBaseline($aRaidRows, _NowCalc()))
+			If (@error) Then
+				LogMessage("WARNING: could not record patient information; shims saved without it")
+			Else
+				; leading CRLF: AdjValidate output may not end with a newline; blank lines are skipped by the parser
+				If (FileWrite($ShimsetFilename, @CRLF & $sTrailer & @CRLF)) Then
+					LogMessage("Recorded patient information for the patient check")
+				Else
+					LogMessage("WARNING: could not write patient information; shims saved without it")
+				EndIf
+			EndIf
+		Else
+			LogMessage("WARNING: patient check unavailable (" & $sRaidReason & "); shims saved without patient information")
+		EndIf
+	EndIf
+
 	UpdateListView()
 EndFunc ;==>OnGet
 
