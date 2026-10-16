@@ -331,8 +331,13 @@ Func _Setup()
 	; verify location of AdjValidate program and scratch directory
 	; since XA, AdjValidate will be in either MED_BIN or CustomerBin
 	; fallback to MEDHOME\bin on older versions
-	$AdjValidate = FindSiemensTool("AdjValidate.exe")
-	If ($AdjValidate == "" And FileExists("C:\Temp\AdjValidate.exe")) Then $AdjValidate = "C:\Temp\AdjValidate.exe" ; for testing only
+	; an explicit $CFG_ADJVALIDATE is used as is, with no fallback search
+	If ($CFG_ADJVALIDATE <> "") Then
+		If (FileExists($CFG_ADJVALIDATE)) Then $AdjValidate = $CFG_ADJVALIDATE
+	Else
+		$AdjValidate = FindSiemensTool("AdjValidate.exe")
+		If ($AdjValidate == "" And FileExists("C:\Temp\AdjValidate.exe")) Then $AdjValidate = "C:\Temp\AdjValidate.exe" ; for testing only
+	EndIf
 
 	If ($AdjValidate == "") Then
 		MsgBox($MB_SYSTEMMODAL + $MB_TOPMOST, $PgmName & ": Setup Error", "ERROR! Could not locate AdjValidate.exe!" & @CRLF & @CRLF _

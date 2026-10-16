@@ -12,6 +12,7 @@ Edit `include/config.au3` before compiling (64-bit AutoIt build, as before). All
 - `$CFG_INITIAL_SHIM_CHANNELS` [12]: columns shown before any shimset exists. 8 = 2nd order, 12 = with 3rd order.
 - `$CFG_PC_ENABLED` [True]: patient check on or off.
 - `$CFG_RAIDTOOL` [""]: full path to RaidTool.exe. An empty string searches MED_BIN, CustomerBin and MEDHOME\bin (never C:\Temp). Set it for test builds.
+- `$CFG_ADJVALIDATE` [""]: full path to AdjValidate.exe. An empty string searches MED_BIN, CustomerBin, MEDHOME\bin, then C:\Temp. A non-empty path is used as is, with no fallback search. Set it to a `.cmd` file for test builds.
 - `$CFG_RAID_ADDRESS` [192.168.2.2] and `$CFG_RAID_PORT` [8010]: where RaidTool finds the RAID.
 - `$CFG_RAID_TIMEOUT_SEC` [10]: passed to RaidTool as `-t`. The process is killed after this plus 5 s.
 - `$CFG_PAT_FIELD_WIDTH` [32]: width of the patient column in the `RaidTool -d` listing.
@@ -49,6 +50,10 @@ The trailer stores a 16-hex-character salted hash of "Name,BirthDate". This is p
 `tests\PatientCheck_test.au3` runs with `AutoIt3.exe /ErrorStdOut tests\PatientCheck_test.au3` and exits 0 on success.
 
 `tests\fake_raidtool.cmd` stands in for RaidTool on a Windows machine without a scanner. Set `$CFG_RAIDTOOL` to its path, and set the environment variable `SHIMCACHE_FAKE_RAID` to a listing file such as `tests\fixtures\raid_sample.txt`. Its expected arguments must match config.au3. Set `SHIMCACHE_FAKE_RAID_HANG` to test the timeout.
+
+`tests\fake_adjvalidate.cmd` stands in for AdjValidate. Set `$CFG_ADJVALIDATE` to its path. Set stores the values it is given, and Get returns the last values set, or a default line if none were set. State is kept in `%TEMP%\shimcache_fake_adj_shim.txt` and `%TEMP%\shimcache_fake_adj_txscale.txt`. Options, set as environment variables: `FAKE_ADJ_SECOND_ORDER` makes the default B0 Get return 8 values instead of 12; `FAKE_ADJ_NOPROT` makes every call fail as if no protocol were open; `FAKE_ADJ_RESET` deletes both state files first. Deleting the files by hand also resets it.
+
+To test end to end, configure both fakes and point `SHIMCACHE_FAKE_RAID` at a scratch copy of a fixture. Click Get, then edit the scratch copy: add a newer row for a different patient at the top (the listing is newest-first), copying the exact column layout of a fixture row. Click Set and expect the DIFFERENT PATIENT dialog. ShimCache's environment is fixed when it starts, so edit the file's contents rather than the variable.
 
 ## Before enabling on a new scanner
 
