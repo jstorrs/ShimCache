@@ -603,6 +603,13 @@ Func OnSet()
 	EndIf
 	LogMessage("Set shims from " & $fname)
 
+	; refuse or confirm shims that may belong to a previous patient
+	; (not FASTMAP in v1: _Setup excludes it via $PC_Enabled, which the gate checks)
+	If (Not PatientCheckGate($fname)) Then
+		GUICtrlSetState($idList, $GUI_FOCUS) ; put focus back on list after any popup
+		Return
+	EndIf
+
 	; format array
 	Local $cmdArgs
 	If ($GUIMode == 1) Then
@@ -695,6 +702,79 @@ Func OnSet()
 		GUICtrlSetState($idList, $GUI_FOCUS) ; put focus back on list after any popup
 	EndIf
 EndFunc ;==>OnSet
+
+
+; read the patient check trailer from a shimset file
+; returns a baseline array, or 0 if the file has no readable trailer
+Func ReadShimBaseline($fname)
+	Local $sTag = "#ShimCachePatientCheck"
+	Local $aBase = 0
+	Local $fh = FileOpen($fname, $FO_READ)
+	If ($fh == -1) Then Return 0
+
+	While 1
+		Local $line = FileReadLine($fh)
+		If (@error) Then ExitLoop
+		; only the first trailer counts; PC_ParseBaseline returns 0 if it does not parse
+		If (StringLeft(StringStripWS($line, $STR_STRIPLEADING), StringLen($sTag)) == $sTag) Then
+			$aBase = PC_ParseBaseline($line)
+			ExitLoop
+		EndIf
+	WEnd
+
+	FileClose($fh)
+	Return $aBase
+EndFunc ;==>ReadShimBaseline
+
+
+; check that the shims in $fname were saved for the patient now in the scanner
+; returns True to go ahead with Set, False to cancel
+; never log $aV[2]: it is the patient name (dialogs only)
+Func PatientCheckGate($fname)
+	If (Not $PC_Enabled) Then Return True
+
+	Local $aBase = ReadShimBaseline($fname)
+	Local $aRows, $iUnknown, $sReason, $aV
+	If (RaidSnapshot($aRows, $iUnknown, $sReason)) Then
+		$aV = PC_Verdict($aBase, $aRows, $iUnknown, _NowCalc(), $CFG_IDLE_MINUTES, $CFG_MAX_AGE_HOURS)
+	Else
+		Local $aFail[3] = [$PC_UNVERIFIED, "The patient check could not run: " & $sReason & ".", ""]
+		$aV = $aFail
+	EndIf
+
+	; same label as the list shows (B0/B1)
+	Local $sShimset = "Shimset: " & GetTimeStampFromFilename($fname)
+	; empty when there is no name, so no doubled blank line
+	Local $sCurLine = ($aV[2] <> "" ? @CRLF & "Patient in the most recent measurement: " & $aV[2] : "")
+	Local $sTitle, $sBody
+
+	; only an explicit VERIFIED proceeds silently; anything unexpected is treated as UNVERIFIED
+	Switch $aV[0]
+		Case $PC_VERIFIED
+			LogMessage("Patient check OK: " & $aV[1])
+			Return True
+		Case $PC_MISMATCH
+			If ($CFG_BLOCK_ON_MISMATCH) Then
+				MsgBox($MB_ICONERROR + $MB_SYSTEMMODAL + $MB_TOPMOST, $PgmName & ": Patient check", _
+						$sShimset & @CRLF & $aV[1] & $sCurLine & @CRLF & @CRLF & "Shims were NOT applied.", 0, $hGUI)
+				LogMessage("Set refused by patient check: " & $aV[1])
+				Return False
+			EndIf
+			$sTitle = $PgmName & ": DIFFERENT PATIENT"
+			$sBody = $sShimset & @CRLF & $aV[1] & $sCurLine & @CRLF & @CRLF & "Another patient has been scanned since these shims were saved. Apply them anyway?"
+		Case Else
+			$sTitle = $PgmName & ": Patient not verified"
+			$sBody = $sShimset & @CRLF & $aV[1] & @CRLF & @CRLF & "Cannot confirm these shims belong to the patient now in the scanner. Apply them anyway?"
+	EndSwitch
+
+	; default button is No; any answer other than Yes cancels (a Yes/No dialog has no close button)
+	If ($IDYES <> MsgBox($MB_YESNO + $MB_ICONWARNING + $MB_DEFBUTTON2 + $MB_SYSTEMMODAL + $MB_TOPMOST, $sTitle, $sBody, 0, $hGUI)) Then
+		LogMessage("Set cancelled by patient check (" & ($aV[0] = $PC_MISMATCH ? "different patient" : "not verified") & "): " & $aV[1])
+		Return False
+	EndIf
+	LogMessage("Patient check overridden by user (" & ($aV[0] = $PC_MISMATCH ? "different patient" : "not verified") & "): " & $aV[1])
+	Return True
+EndFunc ;==>PatientCheckGate
 
 
 ; delete all of the shim files
