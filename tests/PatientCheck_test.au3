@@ -32,8 +32,10 @@ Func RaidLineWip($iFid, $iMid, $sProt, $sPat, $sCreate)
 	Return StringFormat("%8d %6d %-24s%32s wip 2097152 2097152 %s 31.12.1969 19:00:00 0x0", $iFid, $iMid, $sProt, $sPat, $sCreate) & @CRLF
 EndFunc ;==>RaidLineWip
 
-; one closed listing line in the REAL fixed-width layout (no separators; see
-; fixtures\raid_real_phantom.txt): every field right-aligned
+; one closed listing line approximating the REAL fixed-width layout (see
+; fixtures\raid_real_phantom.txt): every field right-aligned, no separators. The
+; real PatName is a separator space plus %31s (fixtures\raid_real_longname.txt),
+; which prints the same for names of up to 31 characters
 Func RaidLineReal($iFid, $iMid, $sProt, $sPat)
 	Return StringFormat("%7d%11d%32s%32s%9s%13s%13s%22s%22s", $iFid, $iMid, $sProt, $sPat, "cld", 1048576, 4194304, "15.10.2026 21:22:14", "15.10.2026 21:22:19") & @CRLF
 EndFunc ;==>RaidLineReal
@@ -157,6 +159,35 @@ Assert(UBound($aRows) = 1 And $aRows[0][$PC_STATUS] == "cld" And $aRows[0][$PC_F
 Assert(UBound($aRows) = 1 And $aRows[0][$PC_PAT] == "PHANTOM^ezFMRI,20060701" And $aRows[0][$PC_PATKEY] == PC_PatKey("PHANTOM^ezFMRI,20060701"), "35-char protocol: PAT and PATKEY")
 Assert($iExt = 0, "35-char protocol: @extended = 0")
 
+; --- real capture (VE11C): a 62-character name overflows the patient field
+; (RaidTool truncates it, dropping comma and birthdate) and a patient
+; registered without a birthdate prints as "TestPatient," ---
+Global $sLong = "TEST^" & StringReplace(StringFormat("%57s", ""), " ", "t")
+Global $sLongKey = PC_PatKey(StringRight($sLong, 32))
+$aRows = PC_ParseRaidList(FileRead(@ScriptDir & "\fixtures\raid_real_longname.txt"))
+$iErr = @error
+$iExt = @extended
+Assert($iErr = 0 And $iExt = 0, "real long name: @error = 0, @extended = 0")
+Assert(UBound($aRows) = 30, "real long name: 30 rows")
+If UBound($aRows) <> 30 Then
+	ConsoleWrite("FAIL: real long name row count wrong, skipping row checks" & @CRLF)
+	Exit(1)
+EndIf
+$bOk = True
+For $i = 0 To 29
+	If $aRows[$i][$PC_FID] <> 17091 - $i Or $aRows[$i][$PC_STATUS] == "?" Then $bOk = False
+Next
+Assert($bOk, "real long name: FIDs 17091-17062 in order, no ? rows")
+$bOk = True
+For $i = 0 To 7
+	If Not ($aRows[$i][$PC_PAT] == StringRight($sLong, 32) And $aRows[$i][$PC_PATKEY] == $sLongKey) Then $bOk = False
+Next
+Assert($bOk, "real long name: 17091-17084 keyed on the last 32 characters")
+Assert($aRows[0][$PC_PROT] == "localizer_64ch @QA FMRI " & StringTrimRight($sLong, 32) And $aRows[0][$PC_CREATE] == "2026/10/16 15:38:56" And $aRows[0][$PC_CLOSE] == "2026/10/16 15:39:09", "real long name: row 0 PROT (takes the name's overflow), CREATE and CLOSE")
+Assert($aRows[8][$PC_FID] = 17083 And $aRows[8][$PC_PATKEY] == PC_PatKey("TEST,19580327"), "real long name: 17083 keyed as TEST,19580327")
+Assert($aRows[14][$PC_FID] = 17077 And $aRows[14][$PC_PAT] == "TestPatient," And $aRows[14][$PC_PATKEY] == PC_PatKey("TestPatient,"), "real long name: 17077 keyed as TestPatient, (no birthdate)")
+Assert($aRows[15][$PC_FID] = 17076 And $aRows[15][$PC_PATKEY] == PC_PatKey("PHANTOM^ezFMRI,20060701"), "real long name: phantom key unchanged")
+
 ; --- header only ---
 $aRows = PC_ParseRaidList("RaidTool remote client" & @CRLF & $sHdr)
 $iErr = @error
@@ -206,6 +237,29 @@ Assert($iExt = 0, "unknown status opn: @extended = 0")
 ; --- wip row with a blank patient field ---
 $aRows = PC_ParseRaidList($sHdr & RaidLineWip(109, 59, "localizer", "", "15.10.2026 10:20:00"))
 Assert(UBound($aRows) = 1 And $aRows[0][$PC_FID] = 109 And $aRows[0][$PC_STATUS] == "?" And $aRows[0][$PC_PATKEY] == "", "wip, blank patient field: ? row with FID 109")
+
+; --- real layout, blank patient field, 40-character protocol: the window lands
+; on the protocol's last 32 characters (no whitespace); the gap rule rejects it ---
+$aRows = PC_ParseRaidList($sHdr & RaidLineReal(110, 60, StringReplace(StringFormat("%40s", ""), " ", "p"), ""))
+Assert(UBound($aRows) = 1 And $aRows[0][$PC_FID] = 110 And $aRows[0][$PC_STATUS] == "?" And $aRows[0][$PC_PATKEY] == "", "blank field, 40-char protocol: gap rule gives ? row with FID 110")
+
+; --- real layout, blank patient field, short protocol with a comma: the window
+; takes the protocol's tail plus padding; the run counts that padding ---
+$aRows = PC_ParseRaidList($sHdr & RaidLineReal(112, 62, "t1,sag", ""))
+Assert(UBound($aRows) = 1 And $aRows[0][$PC_FID] = 112 And $aRows[0][$PC_STATUS] == "?" And $aRows[0][$PC_PATKEY] == "", "blank field, protocol t1,sag: gap rule gives ? row with FID 112")
+
+; --- fixture layout, blank patient field, 40-char protocol: the run is exactly
+; 33 characters, one more than the field (pins the threshold) ---
+$aRows = PC_ParseRaidList($sHdr & RaidLine(113, 63, StringReplace(StringFormat("%40s", ""), " ", "p"), ""))
+Assert(UBound($aRows) = 1 And $aRows[0][$PC_FID] = 113 And $aRows[0][$PC_STATUS] == "?" And $aRows[0][$PC_PATKEY] == "", "blank field, run of 33: gap rule gives ? row with FID 113")
+
+; --- patient field that is only a comma ---
+$aRows = PC_ParseRaidList($sHdr & RaidLine(111, 61, "localizer", ","))
+Assert(UBound($aRows) = 1 And $aRows[0][$PC_FID] = 111 And $aRows[0][$PC_STATUS] == "?" And $aRows[0][$PC_PATKEY] == "", "comma-only patient field: ? row with FID 111")
+
+; --- patient field with a birthdate but no name ---
+$aRows = PC_ParseRaidList($sHdr & RaidLine(114, 64, "localizer", ",19800101"))
+Assert(UBound($aRows) = 1 And $aRows[0][$PC_FID] = 114 And $aRows[0][$PC_STATUS] == "?" And $aRows[0][$PC_PATKEY] == "", "empty name part ,19800101: ? row with FID 114")
 
 ; --- invariant over a mixed listing ---
 $aRows = PC_ParseRaidList($sHdr & RaidLineWip(103, 53, "t1", "DOE^JOHN,19800101", "15.10.2026 10:20:00") & "     102     52" & @CRLF & RaidLine(101, 51, "localizer", "DOE^JOHN,19800101"))
@@ -521,6 +575,32 @@ $aV = PC_Verdict($aBase2, $aRows, 0, "2026/10/15 21:25:00", 30, 12)
 Assert(VerdictIs($aV, $PC_VERIFIED, $sOk), "Real phantom: baseline 17067, wip 17068 same patient -> VERIFIED")
 $aV = PC_Verdict($aBase2, $aRows, 0, "2026/10/15 22:00:00", 30, 12)
 Assert(VerdictIs($aV, $PC_VERIFIED, $sOk), "Real phantom: Set at 22:00 during a long scan -> VERIFIED")
+
+; --- real capture (VE11C) with an overflowed long name on top ---
+Global $sFixLong = FileRead(@ScriptDir & "\fixtures\raid_real_longname.txt")
+$aRows = PC_ParseRaidList($sFixLong)
+$aBase2 = PC_MakeBaseline($aRows, "2026/10/16 15:40:00")
+Assert($aBase2[0] == $sLongKey And $aBase2[1] = 17091, "Real long name: Get records the long-name key at 17091")
+$aV = PC_Verdict($aBase2, $aRows, 0, "2026/10/16 15:41:00", 0, 12)
+Assert(VerdictIs($aV, $PC_VERIFIED, $sOk), "Real long name: Get then Set on the same listing -> VERIFIED")
+$aBase2[0] = PC_PatKey("TEST,19580327")
+$aBase2[1] = 17083
+$aBase2[2] = "2026/10/16 06:10:00"
+$aV = PC_Verdict($aBase2, $aRows, 0, "2026/10/16 15:41:00", 0, 12)
+Assert(VerdictIs($aV, $PC_MISMATCH, "A different patient has been scanned"), "Real long name: baseline TEST,19580327 at 17083, long name since -> MISMATCH")
+
+; a newer row of another long-name patient, in the real overflow layout (one
+; separator space after the protocol field, the rest pushed right)
+Global $sLong2 = "OTHER^" & StringReplace(StringFormat("%56s", ""), " ", "u")
+$sLine = StringFormat("%7d%11d%32s %31s%9s%13s%13s%22s%22s", 17092, 22, "AdjDico", $sLong2, "cld", 1598016, 4194304, "16.10.2026 15:45:00", "16.10.2026 15:45:02") & @CRLF
+$aRows = PC_ParseRaidList(StringReplace($sFixLong, "  17091 ", $sLine & "  17091 ", 1))
+$iExt = @extended
+Assert($iExt = 0 And UBound($aRows) = 31 And $aRows[0][$PC_FID] = 17092 And $aRows[0][$PC_PATKEY] == PC_PatKey(StringRight($sLong2, 32)), "Real long name: newer long-name row parses and is keyed")
+$aBase2[0] = $sLongKey
+$aBase2[1] = 17091
+$aBase2[2] = "2026/10/16 15:40:00"
+$aV = PC_Verdict($aBase2, $aRows, 0, "2026/10/16 15:46:00", 0, 12)
+Assert(VerdictIs($aV, $PC_MISMATCH, "A different patient has been scanned"), "Real long name: baseline long name, newer other long name -> MISMATCH")
 
 ; --- real layout row with a BLANK FileID and a digit-leading protocol ---
 ; Without the 7-space anchor it would parse as FID 194, MID 3 and fall below

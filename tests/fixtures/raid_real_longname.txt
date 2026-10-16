@@ -1,0 +1,38 @@
+
+RAID device 
+   571788 Mbyte of  572180 MByte available for I/O
+   569500 MByte of  571788 MByte in use,    2288 MByte free
+     1089 Files of  142947 Files in use,  141858 Files free
+
+ FileID     MeasID                        ProtName                         PatName   Status         Size   SizeOnDisk          CreationTime             CloseTime dependent files (fileID)
+
+  17091         21         localizer_64ch @QA FMRI TEST^ttttttttttttttttttttttttttttttttttttttttttttttttttttttttt      cld    370571520    373293056   16.10.2026 15:38:56   16.10.2026 15:39:09 17090, 17090
+  17090         20                     AdjCoilSens TEST^ttttttttttttttttttttttttttttttttttttttttttttttttttttttttt      cld    124278144    125829120   16.10.2026 15:38:48   16.10.2026 15:38:53
+  17089         19                          AdjFre TEST^ttttttttttttttttttttttttttttttttttttttttttttttttttttttttt      cld       709152      4194304   16.10.2026 15:38:40   16.10.2026 15:38:43
+  17088         18                     AdjFieldMap TEST^ttttttttttttttttttttttttttttttttttttttttttttttttttttttttt      cld     22077600     25165824   16.10.2026 15:38:25   16.10.2026 15:38:39
+  17087         17                         AdjDico TEST^ttttttttttttttttttttttttttttttttttttttttttttttttttttttttt      cld      1598016      4194304   16.10.2026 15:38:21   16.10.2026 15:38:22
+  17086         16                          AdjTra TEST^ttttttttttttttttttttttttttttttttttttttttttttttttttttttttt      cld       728160      4194304   16.10.2026 15:38:16   16.10.2026 15:38:18
+  17085         15                          AdjFre TEST^ttttttttttttttttttttttttttttttttttttttttttttttttttttttttt      cld       727360      4194304   16.10.2026 15:38:14   16.10.2026 15:38:16
+  17084         14                         AdjDico TEST^ttttttttttttttttttttttttttttttttttttttttttttttttttttttttt      cld      1192928      4194304   16.10.2026 15:38:12   16.10.2026 15:38:13
+  17083         13                  3-Pl Localizer                   TEST,19580327      cld     83380576     83886080   16.10.2026 06:08:47   16.10.2026 06:09:02 17082, 17082
+  17082         12                     AdjCoilSens                   TEST,19580327      cld     40799488     41943040   16.10.2026 06:08:40   16.10.2026 06:08:45
+  17081         11                         AdjDico                   TEST,19580327      cld      1491488      4194304   16.10.2026 06:08:39   16.10.2026 06:08:39
+  17080         10                          AdjTra                   TEST,19580327      cld       726432      4194304   16.10.2026 06:08:36   16.10.2026 06:08:38
+  17079          9                          AdjFre                   TEST,19580327      cld      1017280      4194304   16.10.2026 06:08:34   16.10.2026 06:08:35
+  17078          8                         AdjDico                   TEST,19580327      cld      1086368      4194304   16.10.2026 06:08:31   16.10.2026 06:08:32
+  17077          1                         AdjDico                    TestPatient,      cld       728832      4194304   16.10.2026 06:05:05   16.10.2026 06:05:07
+  17076        202               rf_noise_spectrum         PHANTOM^ezFMRI,20060701      cld   7569345056   7570718720   15.10.2026 21:27:01   15.10.2026 21:27:42 17075
+  17075        201                     AdjCoilSens         PHANTOM^ezFMRI,20060701      cld     68675776     71303168   15.10.2026 21:26:56   15.10.2026 21:26:58
+  17074        200                          AdjFre         PHANTOM^ezFMRI,20060701      cld      1303840      4194304   15.10.2026 21:26:52   15.10.2026 21:26:56
+  17073        199                         SNR_Map         PHANTOM^ezFMRI,20060701      cld    760190016    763363328   15.10.2026 21:23:19   15.10.2026 21:26:27 17067, 17067
+  17072        198                          AdjFre         PHANTOM^ezFMRI,20060701      cld       698112      4194304   15.10.2026 21:23:11   15.10.2026 21:23:14
+  17071        197                     AdjFieldMap         PHANTOM^ezFMRI,20060701      cld     22066624     25165824   15.10.2026 21:22:56   15.10.2026 21:23:10
+  17070        196                          AdjFre         PHANTOM^ezFMRI,20060701      cld       698112      4194304   15.10.2026 21:22:51   15.10.2026 21:22:52
+  17069        195       localizer_64ch_uncombined         PHANTOM^ezFMRI,20060701      cld    370574080    373293056   15.10.2026 21:22:37   15.10.2026 21:22:50 17067, 17067
+  17068        194         localizer_64ch @QA FMRI         PHANTOM^ezFMRI,20060701      cld    370573376    373293056   15.10.2026 21:22:24   15.10.2026 21:22:36 17067, 17067
+  17067        193                     AdjCoilSens         PHANTOM^ezFMRI,20060701      cld    124278336    125829120   15.10.2026 21:22:14   15.10.2026 21:22:19
+  17066        192                         AdjDico         PHANTOM^ezFMRI,20060701      cld      1598208      4194304   15.10.2026 21:22:12   15.10.2026 21:22:13
+  17065        191                          AdjTra         PHANTOM^ezFMRI,20060701      cld       728224      4194304   15.10.2026 21:22:02   15.10.2026 21:22:05
+  17064        190                          AdjFre         PHANTOM^ezFMRI,20060701      cld       727424      4194304   15.10.2026 20:12:22   15.10.2026 20:12:24
+  17063        189                          AdjFre         PHANTOM^ezFMRI,20060701      cld       709152      4194304   15.10.2026 20:12:15   15.10.2026 20:12:16
+  17062        188                         AdjDico         PHANTOM^ezFMRI,20060701      cld      1193120      4194304   15.10.2026 20:12:13   15.10.2026 20:12:15

@@ -51,7 +51,7 @@ EndFunc ;==>PC_PatKey
 ;                 16 hex chars; CREATE is set and CLOSE is "" (RaidTool prints
 ;                 a placeholder close time, epoch 0, which must never be used).
 ;   STATUS "?"  : FileID/MeasID found but the rest is an unknown status or
-;                 layout, or a patient field that fails the shape check. Only
+;                 layout, or a patient field that is not keyed (see below). Only
 ;                 FID and MID are set; callers must treat it as unverifiable.
 ; Sets @error = 1 (and returns zero rows) if no header line is found.
 ; Otherwise @extended = number of non-blank lines after the header that could
@@ -61,16 +61,17 @@ EndFunc ;==>PC_PatKey
 Func PC_ParseRaidList($sText, $iPatWidth = 32)
 	Local $aLines = StringSplit(StringStripCR($sText), @LF, $STR_NOCOUNT)
 	Local $aRows[UBound($aLines)][$PC_NCOLS]		; preallocated, trimmed once at the end
-	; Layout confirmed from a real capture (tests\fixtures\raid_real_phantom.txt):
-	; fixed-width, every column right-aligned, no separators between fields
-	; (%7d%11d%32s%32s%9s%13s%13s%22s%22s): ProtName is a %32s field ending at
-	; column 50 and PatName a %32s field ending at column 82; the status is "cld"
-	; or "wip"; the listing is newest-first. A "wip" row has the full layout, with
+	; Layout confirmed from real captures (tests\fixtures\raid_real_phantom.txt,
+	; raid_real_longname.txt): fixed-width, every column right-aligned. ProtName
+	; ends at column 50; PatName is one separator space plus a %31s field ending
+	; at column 82 (seen when a long name overflows); the status is "cld" or
+	; "wip"; the listing is newest-first. A "wip" row has the full layout, with
 	; CloseTime 31.12.1969 19:00:00 (epoch 0 in local time). Trailing columns such
 	; as "dependent files" are ignored: the pattern is not anchored at the end.
-	; With no separator, a protocol name of 32 or more characters abuts MeasID,
-	; so MeasID and ProtName are split by \s* rather than \s+. A protocol name
-	; longer than 32 characters overflows its field and pushes the rest of the
+	; Unconfirmed: whether ProtName also has a separator space (no protocol of 32+
+	; characters seen yet). If not, such a protocol abuts MeasID, so MeasID and
+	; ProtName are split by \s* rather than \s+, which works either way. A protocol
+	; name longer than its field overflows it and pushes the rest of the
 	; line right; the patient window still works because it is anchored on the
 	; status column. A digit-leading protocol may lose digits to MeasID, so both
 	; MID and PROT can be off for such a row; the verdict uses neither.
@@ -83,13 +84,24 @@ Func PC_ParseRaidList($sText, $iPatWidth = 32)
 	; ignored, a false VERIFIED. Such a row is now an unparsed line (@extended).
 	; If a patient field were ever printed left-aligned, the lazy protocol group
 	; would let the window slide left: PROT loses its last characters and the key
-	; changes, giving a safe false mismatch.
-	; Still unknown: how a name longer than the field is printed. It is keyed only
-	; on its last $iPatWidth characters, and a field cut short at the width can
-	; lose birthdate digits.
-	Local $sStrict = '^\s{0,7}(\d+)\s+(\d+)\s*(.+?)(.{' & $iPatWidth & '})\s+(cld|wip)\s+(\d+)\s+(\d+)\s+(\d\d)\.(\d\d)\.(\d{4}) (\d\d:\d\d:\d\d)\s+(\d\d)\.(\d\d)\.(\d{4}) (\d\d:\d\d:\d\d)'
+	; changes, giving a safe false mismatch; a short left-aligned name leaves a
+	; long whitespace run before the status and becomes a "?" row (gap rule).
+	; A name longer than the field (tests\fixtures\raid_real_longname.txt, VE11C)
+	; overflows it: printed after one separator space, it pushes the rest of the
+	; line right, and the gap before the status is unchanged. It is keyed on its
+	; last $iPatWidth characters (the rest of the name lands in PROT), so two such
+	; patients whose names share those characters cannot be told apart. A very
+	; long name (62 characters seen on VE11C) is truncated by RaidTool and loses
+	; the comma and birthdate. A patient registered without a birthdate prints as
+	; "Name," and is keyed on that.
+	; A blank patient field lets the window slide onto the protocol name, which
+	; must not become a key. The whitespace run from the window's last visible
+	; character to the status is then longer than the field itself, so such a
+	; row is never keyed (gap rule; it counts trailing whitespace inside the
+	; window, where a short protocol leaves it).
+	Local $sStrict = '^\s{0,7}(\d+)\s+(\d+)\s*(.+?)(.{' & $iPatWidth & '})(\s+)(cld|wip)\s+(\d+)\s+(\d+)\s+(\d\d)\.(\d\d)\.(\d{4}) (\d\d:\d\d:\d\d)\s+(\d\d)\.(\d\d)\.(\d{4}) (\d\d:\d\d:\d\d)'
 	Local $sLoose = '^\s{0,7}(\d+)\s+(\d+)'
-	Local $iStart = -1, $n = 0, $iUnknown = 0, $i, $aM, $sPat
+	Local $iStart = -1, $n = 0, $iUnknown = 0, $i, $aM, $sPat, $sKey
 	Local $sPrevPat = "", $sPrevKey = ""		; consecutive rows usually share a patient
 
 	For $i = 0 To UBound($aLines) - 1
@@ -106,23 +118,29 @@ Func PC_ParseRaidList($sText, $iPatWidth = 32)
 	For $i = $iStart To UBound($aLines) - 1
 		$aM = StringRegExp($aLines[$i], $sStrict, $STR_REGEXPARRAYMATCH)
 		If IsArray($aM) Then
-			; key only "Name,BirthDate"-shaped fields; a blank field lets the
-			; window slide onto the protocol name, which must not become a key
+			; key only when the gap rules out a blank field, the name part (before
+			; the first comma, if any) is not just whitespace and commas, and it is
+			; "Name,BirthDate"-shaped (an empty birthdate included, an empty name
+			; not) or fills the window (an overflowed name)
 			$sPat = StringStripWS($aM[3], 3)
-			If Not ($sPat == $sPrevPat) Then
-				$sPrevPat = $sPat
-				$sPrevKey = StringRegExp($sPat, '^\S.*,.*\S$') ? PC_PatKey($sPat) : ""
+			$sKey = ""
+			If StringLen($aM[4]) + StringLen($aM[3]) - StringLen(StringStripWS($aM[3], 2)) <= $iPatWidth And StringRegExp($sPat, '^[^,]*[^\s,]') And (StringInStr($sPat, ",") Or Not StringRegExp($aM[3], '\s')) Then
+				If Not ($sPat == $sPrevPat) Then
+					$sPrevPat = $sPat
+					$sPrevKey = PC_PatKey($sPat)
+				EndIf
+				$sKey = $sPrevKey
 			EndIf
-			If $sPrevKey <> "" Then
+			If $sKey <> "" Then
 				$aRows[$n][$PC_FID] = Number($aM[0])
 				$aRows[$n][$PC_MID] = Number($aM[1])
 				$aRows[$n][$PC_PROT] = StringStripWS($aM[2], 3)
 				$aRows[$n][$PC_PAT] = $sPat
-				$aRows[$n][$PC_PATKEY] = $sPrevKey
-				$aRows[$n][$PC_STATUS] = $aM[4]
-				$aRows[$n][$PC_CREATE] = $aM[9] & "/" & $aM[8] & "/" & $aM[7] & " " & $aM[10]		; yyyy/mm/dd hh:mm:ss for _DateDiff
+				$aRows[$n][$PC_PATKEY] = $sKey
+				$aRows[$n][$PC_STATUS] = $aM[5]
+				$aRows[$n][$PC_CREATE] = $aM[10] & "/" & $aM[9] & "/" & $aM[8] & " " & $aM[11]		; yyyy/mm/dd hh:mm:ss for _DateDiff
 				; a running measurement prints a placeholder close time: never use it
-				$aRows[$n][$PC_CLOSE] = ($aM[4] == "cld" ? $aM[13] & "/" & $aM[12] & "/" & $aM[11] & " " & $aM[14] : "")
+				$aRows[$n][$PC_CLOSE] = ($aM[5] == "cld" ? $aM[14] & "/" & $aM[13] & "/" & $aM[12] & " " & $aM[15] : "")
 				$n += 1
 				ContinueLoop
 			EndIf
