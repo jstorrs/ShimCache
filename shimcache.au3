@@ -387,10 +387,10 @@ EndFunc ;==>_Setup
 ; return the first existing copy of a Siemens tool, or "" if none is found
 Func FindSiemensTool($exe)
 	; since XA, tools will be in either MED_BIN or CustomerBin
-	; fallback to MEDHOME\bin on older versions
-	Local $aDirs[3] = [EnvGet("MED_BIN"), EnvGet("CustomerBin"), EnvGet("MEDHOME") & "\bin"]
+	; fallback to MEDHOME\bin, then C:\MedCom\bin (the usual MEDHOME, hard-coded by YarraClient) on older versions
+	Local $aDirs[4] = [EnvGet("MED_BIN"), EnvGet("CustomerBin"), EnvGet("MEDHOME") & "\bin", "C:\MedCom\bin"]
 	If (EnvGet("MEDHOME") == "") Then $aDirs[2] = ""
-	For $i = 0 To 2
+	For $i = 0 To UBound($aDirs) - 1
 		If ($aDirs[$i] <> "" And FileExists($aDirs[$i] & "\" & $exe) == 1) Then Return $aDirs[$i] & "\" & $exe
 	Next
 	Return ""

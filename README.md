@@ -11,8 +11,8 @@ Edit `include/config.au3` before compiling (64-bit AutoIt build, as before). All
 
 - `$CFG_INITIAL_SHIM_CHANNELS` [12]: columns shown before any shimset exists. 8 = 2nd order, 12 = with 3rd order.
 - `$CFG_PC_ENABLED` [True]: patient check on or off.
-- `$CFG_RAIDTOOL` [""]: full path to RaidTool.exe. An empty string searches MED_BIN, CustomerBin and MEDHOME\bin (never C:\Temp). Set it for test builds.
-- `$CFG_ADJVALIDATE` [""]: full path to AdjValidate.exe. An empty string searches MED_BIN, CustomerBin, MEDHOME\bin, then C:\Temp. A non-empty path is used as is, with no fallback search. Set it to a `.cmd` file for test builds.
+- `$CFG_RAIDTOOL` [""]: full path to RaidTool.exe. An empty string searches MED_BIN, CustomerBin, MEDHOME\bin and C:\MedCom\bin (never C:\Temp). Set it for test builds.
+- `$CFG_ADJVALIDATE` [""]: full path to AdjValidate.exe. An empty string searches MED_BIN, CustomerBin, MEDHOME\bin, C:\MedCom\bin, then C:\Temp. A non-empty path is used as is, with no fallback search. Set it to a `.cmd` file for test builds.
 - `$CFG_RAID_ADDRESS` [192.168.2.2] and `$CFG_RAID_PORT` [8010]: where RaidTool finds the RAID.
 - `$CFG_RAID_TIMEOUT_SEC` [10]: passed to RaidTool as `-t`. The process is killed after this plus 5 s.
 - `$CFG_PAT_FIELD_WIDTH` [32]: width of the patient column in the `RaidTool -d` listing.

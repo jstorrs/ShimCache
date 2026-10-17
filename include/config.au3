@@ -12,8 +12,8 @@ Global Const $CFG_INITIAL_SHIM_CHANNELS = 12	; columns shown before any shimset 
 ; destructive operations (-i formats the RAID; -A and -R write to it). Only -d
 ; is ever run, and its arguments come only from these constants.
 Global Const $CFG_PC_ENABLED = True	; patient check on/off
-Global Const $CFG_RAIDTOOL = ""	; full path to RaidTool.exe; "" = search MED_BIN, CustomerBin, MEDHOME\bin (never C:\Temp; set this for test builds)
-Global Const $CFG_ADJVALIDATE = ""	; full path to AdjValidate.exe or a test fake (.cmd); "" = search MED_BIN, CustomerBin, MEDHOME\bin, then C:\Temp
+Global Const $CFG_RAIDTOOL = ""	; full path to RaidTool.exe; "" = search MED_BIN, CustomerBin, MEDHOME\bin, C:\MedCom\bin (never C:\Temp; set this for test builds)
+Global Const $CFG_ADJVALIDATE = ""	; full path to AdjValidate.exe or a test fake (.cmd); "" = search MED_BIN, CustomerBin, MEDHOME\bin, C:\MedCom\bin, then C:\Temp
 Global Const $CFG_RAID_ADDRESS = "192.168.2.2"
 Global Const $CFG_RAID_PORT = 8010
 Global Const $CFG_RAID_TIMEOUT_SEC = 10	; passed to RaidTool -t; process killed after this + 5 s
