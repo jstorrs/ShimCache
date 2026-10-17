@@ -41,6 +41,7 @@ The `-k` flag is required, because RaidTool anonymizes the listing without it. O
 - Names longer than the 32-character listing field are compared on their last 32 characters only. A very long name (62 characters seen on VE11C) is truncated by RaidTool and loses the birth date. A patient registered without a birth date is compared on the name alone.
 - The idle check, if enabled, assumes the scanner and this computer share a clock (the recon system takes its time from the console at boot).
 - The check relies on RaidTool listing newest-first.
+- Retro-recons (MeasID 3000000 and up, as YarraClient treats them) are ignored, since they can be of an earlier patient. A row is only ignored when its FileID and MeasID sit exactly in their columns; anything doubtful is checked as usual.
 
 ### Privacy
 

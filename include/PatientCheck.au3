@@ -31,6 +31,11 @@ Global Enum $PC_FID, $PC_MID, $PC_PROT, $PC_PAT, $PC_PATKEY, $PC_STATUS, $PC_CRE
 ; birthdate can be guessed, so shim files must not be treated as de-identified.
 Global Const $PC_SALT = "ShimCache-PC-v1|"
 
+; MeasIDs from here up are retro-reconstructions of earlier raw data, possibly of
+; a previous patient, not new measurements (YarraClient, rds_raid.cpp, skips them
+; the same way). PC_ParseRaidList leaves such rows out.
+Global Const $PC_RETRO_MEASID = 3000000
+
 
 ; salted, truncated SHA-256 of a patient field (16 lowercase hex chars),
 ; or "" for an empty/blank field. Sets @error = 1 (and returns "") if hashing fails.
@@ -43,6 +48,21 @@ Func PC_PatKey($sPatField)
 EndFunc ;==>PC_PatKey
 
 
+; True if a listing line is a retro-recon row: MeasID >= $PC_RETRO_MEASID, read
+; from its fixed column (%7d FileID in columns 1-7, %11d MeasID in 8-18). Hiding
+; a row from the check is unsafe if its MeasID is in doubt, since it could hide a
+; new patient (a false VERIFIED), so each number must sit wholly inside its own
+; column. That rejects non-row lines, a blank FileID (the MeasID would be read
+; as the FileID), a FileID overflowing into the MeasID column, and a layout
+; shifted left. Nothing is assumed about column 19 on: the protocol may or may
+; not have a separator before it.
+Func __PC_IsRetroRecon($sLine)
+	If Not StringRegExp(StringLeft($sLine, 7), '^ *\d+$') Then Return False		; FileID ends at column 7
+	If Not StringRegExp(StringMid($sLine, 8, 11), '^ +\d+$') Then Return False		; column 8 blank, MeasID ends at column 18
+	Return Number(StringMid($sLine, 8, 11)) >= $PC_RETRO_MEASID
+EndFunc ;==>__PC_IsRetroRecon
+
+
 ; Parse a RaidTool -d listing into a 2D array [n][$PC_NCOLS], one row per file
 ; after the "FileID" header line. Invariant:
 ;   STATUS "cld": closed measurement, fully parsed; PATKEY is always 16 hex
@@ -53,6 +73,8 @@ EndFunc ;==>PC_PatKey
 ;   STATUS "?"  : FileID/MeasID found but the rest is an unknown status or
 ;                 layout, or a patient field that is not keyed (see below). Only
 ;                 FID and MID are set; callers must treat it as unverifiable.
+; Retro-recon rows (MeasID >= $PC_RETRO_MEASID, see __PC_IsRetroRecon) are
+; omitted entirely, whether keyed or "?", and are not counted in @extended.
 ; Sets @error = 1 (and returns zero rows) if no header line is found.
 ; Otherwise @extended = number of non-blank lines after the header that could
 ; not be parsed at all. Only exact repeats of the detected header line (compared
@@ -116,6 +138,7 @@ Func PC_ParseRaidList($sText, $iPatWidth = 32)
 	EndIf
 
 	For $i = $iStart To UBound($aLines) - 1
+		If __PC_IsRetroRecon($aLines[$i]) Then ContinueLoop
 		$aM = StringRegExp($aLines[$i], $sStrict, $STR_REGEXPARRAYMATCH)
 		If IsArray($aM) Then
 			; key only when the gap rules out a blank field, the name part (before

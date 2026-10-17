@@ -612,6 +612,86 @@ Assert($iExt = 1 And UBound($aRows) = 2, "Blank FileID: row is unparsed, @extend
 $aV = PC_Verdict($aBase, $aRows, $iExt, $sSet, 60, 12)
 Assert(VerdictIs($aV, $PC_UNVERIFIED, "Part of the RAID listing could not be read."), "Blank FileID: digit-leading protocol for patient B -> UNVERIFIED")
 
+; Set time after the RaidLineReal rows close (21:22), so the clock check stays quiet
+Global Const $sSetReal = "2026/10/15 21:40:00"
+; --- retro-recon rows (MeasID >= 3000000, read from its column) are omitted ---
+$aRows = PC_ParseRaidList($sHdr & RaidLineReal(103, 3000001, "localizer", $sPatA) & RaidLineReal(102, 2999999, "localizer", $sPatA) & RaidLineReal(101, 51, "localizer", $sPatA))
+$iExt = @extended
+Assert(UBound($aRows) = 2 And $aRows[0][$PC_FID] = 102 And $aRows[1][$PC_FID] = 101 And $iExt = 0, "Retro-recon: MeasID 3000001 omitted, 2999999 kept, @extended = 0")
+Assert(UBound($aRows) = 2 And $aRows[0][$PC_MID] = 2999999, "Retro-recon: kept row has MID 2999999")
+
+; a newest retro-recon row of another patient must not trigger a mismatch
+$aRows = PC_ParseRaidList($sHdr & RaidLineReal(103, 3000005, "localizer", $sPatB) & RaidLineReal(102, 52, "localizer", $sPatA) & RaidLineReal(101, 51, "localizer", $sPatA))
+$aV = PC_Verdict($aBase, $aRows, @extended, $sSetReal, 60, 12)
+Assert(UBound($aRows) = 2 And VerdictIs($aV, $PC_VERIFIED, $sOk), "Retro-recon: newest row of patient B omitted -> VERIFIED")
+; the same row below the retro threshold is a real new measurement
+$aRows = PC_ParseRaidList($sHdr & RaidLineReal(103, 2999999, "localizer", $sPatB) & RaidLineReal(102, 52, "localizer", $sPatA) & RaidLineReal(101, 51, "localizer", $sPatA))
+$aV = PC_Verdict($aBase, $aRows, @extended, $sSet, 60, 12)
+Assert(VerdictIs($aV, $PC_MISMATCH, "A different patient has been scanned"), "Retro-recon: same row with MeasID 2999999 -> MISMATCH")
+
+; an unreadable ("?") row with a retro MeasID is omitted too, a low one is kept
+$aRows = PC_ParseRaidList($sHdr & StringFormat("%7d%11d", 104, 3000000) & " junk" & @CRLF & StringFormat("%7d%11d", 103, 3500000) & @CRLF & StringFormat("%7d%11d", 102, 53) & " junk" & @CRLF)
+$iExt = @extended
+Assert(UBound($aRows) = 1 And $aRows[0][$PC_FID] = 102 And $aRows[0][$PC_STATUS] == "?" And $iExt = 0, "Retro-recon: ? row with retro MeasID omitted, low MeasID kept")
+
+; guard: MeasID 300000 followed by a digit-leading 32-char protocol: the parsed MID
+; is 3000001, but the MeasID column holds 300000, so the row is a real measurement
+Global $sGlue = "1D_" & StringReplace(StringFormat("%29s", ""), " ", "x")
+$aRows = PC_ParseRaidList($sHdr & RaidLineReal(102, 300000, $sGlue, $sPatB) & RaidLineReal(101, 51, "localizer", $sPatA))
+$iExt = @extended
+Assert(UBound($aRows) = 2 And $aRows[0][$PC_FID] = 102 And $aRows[0][$PC_MID] = 3000001, "Retro-recon guard: glued protocol digits, row kept (MID parses as 3000001)")
+$aV = PC_Verdict($aBase, $aRows, $iExt, $sSetReal, 60, 12)
+Assert(VerdictIs($aV, $PC_MISMATCH, "A different patient has been scanned"), "Retro-recon guard: new patient B in the glued row -> MISMATCH")
+; same, but the row falls to "?" (blank patient field): still kept, never VERIFIED
+$aRows = PC_ParseRaidList($sHdr & RaidLineReal(102, 300000, $sGlue, "") & RaidLineReal(101, 51, "localizer", $sPatA))
+$aV = PC_Verdict($aBase, $aRows, @extended, $sSetReal, 60, 12)
+Assert(UBound($aRows) = 2 And $aRows[0][$PC_STATUS] == "?" And VerdictIs($aV, $PC_UNVERIFIED, "A newer measurement could not be read."), "Retro-recon guard: glued protocol, blank patient -> ? row, UNVERIFIED")
+
+; the column checks reject anything that is not a row with both numbers in their
+; own columns: such a line is never silently dropped
+$aRows = PC_ParseRaidList($sHdr & "Error: 3000000 abc def" & @CRLF & RaidLineReal(102, 52, "localizer", $sPatA) & RaidLineReal(101, 51, "localizer", $sPatA))
+$iExt = @extended
+$aV = PC_Verdict($aBase, $aRows, $iExt, $sSetReal, 60, 12)
+Assert($iExt = 1 And UBound($aRows) = 2 And VerdictIs($aV, $PC_UNVERIFIED, "Part of the RAID listing could not be read."), "Retro-recon guard: non-row line is unparsed -> @extended 1, UNVERIFIED")
+; text in the FileID column, MeasID column intact
+$aRows = PC_ParseRaidList($sHdr & StringFormat("%-7s%11d", "Error:", 3000000) & " abc" & @CRLF & RaidLineReal(102, 52, "localizer", $sPatA) & RaidLineReal(101, 51, "localizer", $sPatA))
+$iExt = @extended
+Assert($iExt = 1 And UBound($aRows) = 2, "Retro-recon guard: text in the FileID column is not a row -> @extended 1")
+; blank FileID, retro-looking MeasID, patient B
+$sLine = StringFormat("%7s%11d%32s%32s%9s%13s%13s%22s%22s", "", 3000005, "localizer", $sPatB, "cld", 1048576, 4194304, "15.10.2026 21:30:00", "15.10.2026 21:30:05") & @CRLF
+$aRows = PC_ParseRaidList($sHdr & $sLine & RaidLineReal(102, 52, "localizer", $sPatA) & RaidLineReal(101, 51, "localizer", $sPatA))
+$iExt = @extended
+$aV = PC_Verdict($aBase, $aRows, $iExt, $sSetReal, 60, 12)
+Assert($iExt = 1 And UBound($aRows) = 2 And VerdictIs($aV, $PC_UNVERIFIED, "Part of the RAID listing could not be read."), "Retro-recon guard: blank FileID is not dropped -> @extended 1, UNVERIFIED")
+; 8-digit FileID overflows into the MeasID column: kept, and patient B is seen
+$aRows = PC_ParseRaidList($sHdr & RaidLineReal(12345678, 3000005, "localizer", $sPatB) & RaidLineReal(101, 51, "localizer", $sPatA))
+$aV = PC_Verdict($aBase, $aRows, @extended, $sSetReal, 60, 12)
+Assert(UBound($aRows) = 2 And $aRows[0][$PC_FID] = 12345678 And VerdictIs($aV, $PC_MISMATCH, "A different patient has been scanned"), "Retro-recon guard: 8-digit FileID row kept -> MISMATCH")
+; FileID overflowing into column 8 with no gap before the MeasID: not a row
+$sLine = StringFormat("%8d%11s%32s%32s%9s%13s%13s%22s%22s", 12345678, "30000000005", "localizer", $sPatB, "cld", 1048576, 4194304, "15.10.2026 21:30:00", "15.10.2026 21:30:05") & @CRLF
+$aRows = PC_ParseRaidList($sHdr & $sLine & RaidLineReal(102, 52, "localizer", $sPatA) & RaidLineReal(101, 51, "localizer", $sPatA))
+$iExt = @extended
+$aV = PC_Verdict($aBase, $aRows, $iExt, $sSetReal, 60, 12)
+Assert($iExt = 1 And UBound($aRows) = 2 And VerdictIs($aV, $PC_UNVERIFIED, "Part of the RAID listing could not be read."), "Retro-recon guard: FileID overflowing into the MeasID column is not dropped -> UNVERIFIED")
+; layout shifted left (%6d FileID): the "1" of the protocol lands in column 18
+$sLine = StringFormat("%6d%11d%32s%32s%9s%13s%13s%22s%22s", 102, 1243569, "1 " & StringReplace(StringFormat("%30s", ""), " ", "x"), $sPatB, "cld", 1048576, 4194304, "15.10.2026 21:30:00", "15.10.2026 21:30:05") & @CRLF
+$aRows = PC_ParseRaidList($sHdr & $sLine & RaidLineReal(101, 51, "localizer", $sPatA))
+Assert(UBound($aRows) = 2 And $aRows[0][$PC_FID] = 102, "Retro-recon guard: row shifted left is kept")
+; a retro row whose 32-character protocol starts right at column 19 (no separator)
+; is still dropped
+$aRows = PC_ParseRaidList($sHdr & RaidLineReal(103, 3000005, "ep2d_diff_mddw_30dir_p2_AP_b1000", $sPatB) & RaidLineReal(102, 52, "localizer", $sPatA) & RaidLineReal(101, 51, "localizer", $sPatA))
+$iExt = @extended
+$aV = PC_Verdict($aBase, $aRows, $iExt, $sSetReal, 60, 12)
+Assert($iExt = 0 And UBound($aRows) = 2 And $aRows[0][$PC_FID] = 102 And VerdictIs($aV, $PC_VERIFIED, $sOk), "Retro-recon: 32-char protocol with no separator: retro row dropped")
+
+; Get side: a newest retro row of A must not become the baseline
+$aRows = PC_ParseRaidList($sHdr & RaidLineReal(121, 3000005, "localizer", $sPatA) & RaidLineReal(120, 60, "localizer", $sPatB) & RaidLineReal(119, 59, "localizer", $sPatB) & RaidLineReal(110, 50, "localizer", $sPatA))
+$aBase2 = PC_MakeBaseline($aRows, $sGet)
+Assert($aBase2[0] == PC_PatKey($sPatB) And $aBase2[1] = 120, "Retro-recon Get: baseline is patient B, fid 120 (not the retro row 121)")
+$aRows = PC_ParseRaidList($sHdr & RaidLineReal(122, 62, "localizer", $sPatA) & RaidLineReal(121, 3000005, "localizer", $sPatA) & RaidLineReal(120, 60, "localizer", $sPatB) & RaidLineReal(119, 59, "localizer", $sPatB) & RaidLineReal(110, 50, "localizer", $sPatA))
+$aV = PC_Verdict($aBase2, $aRows, @extended, $sSetReal, 60, 12)
+Assert(VerdictIs($aV, $PC_MISMATCH, "A different patient has been scanned"), "Retro-recon Get: patient A scanned after baseline B -> MISMATCH")
+
 ; --- enum: UNVERIFIED is the zero value ---
 Assert($PC_UNVERIFIED = 0 And $PC_VERIFIED <> 0, "Enum: UNVERIFIED is 0, VERIFIED is not")
 
