@@ -67,6 +67,12 @@ Global $debugLog = 0								; debug log level (0 = release, 1 = debug)
 Global $RaidTool = ""									; resolved path to RaidTool.exe
 Global $PC_Enabled = False								; runtime switch for the patient check
 
+; log box tint, so the end of a Get or Set is noticeable without reading the log (RGB)
+Global Const $LOG_BK_BUSY = 0xFFF4B8					; pale yellow while running
+Global Const $LOG_BK_OK = 0xC8F0C8						; pale green: shims saved/applied
+Global Const $LOG_BK_FAIL = 0xF8C4C4					; pale red: shims not saved/applied
+Global Const $LOG_WASH_MS = 15000						; how long green/red stays before clearing
+
 ; for multi-line list view (B1 mode)
 Global $hListFont, $fListHasFocus=0, $listRows, $listData[1][1]
 #include "include/GlobalUI.au3"
@@ -410,6 +416,27 @@ Func SetBusy($bBusy)
 EndFunc ;==>SetBusy
 
 
+; tint the log box yellow while a Get or Set runs
+Func LogWashBusy()
+	AdlibUnRegister("LogWashClear")
+	GUICtrlSetBkColor($idEdit, $LOG_BK_BUSY)
+EndFunc ;==>LogWashBusy
+
+
+; tint the log box green or red for $LOG_WASH_MS when a Get or Set ends
+Func LogWashDone($bOk)
+	AdlibUnRegister("LogWashClear")
+	GUICtrlSetBkColor($idEdit, ($bOk ? $LOG_BK_OK : $LOG_BK_FAIL))
+	AdlibRegister("LogWashClear", $LOG_WASH_MS)
+EndFunc ;==>LogWashDone
+
+
+Func LogWashClear()
+	AdlibUnRegister("LogWashClear")
+	GUICtrlSetBkColor($idEdit, $GUI_BKCOLOR_DEFAULT)
+EndFunc ;==>LogWashClear
+
+
 ; wait for a process started with Run() and return its exit code
 ; returns 1 with @extended = exit code, mirroring ProcessWaitClose
 ; ProcessWaitClose's @extended can report 259 (STILL_ACTIVE) under Wine for a process that has
@@ -513,6 +540,7 @@ Func OnGet()
 	Local $ShimsetFilename = $ShimFilePrefix & @YEAR & @MON & @MDAY & @HOUR & @MIN & @SEC & $ShimFileSuffix
 
 	LogMessage("Get shims to " & $ShimsetFilename)
+	LogWashBusy()
 
 	Local $cmdArgs
 	If ($GUIMode == 1) Then
@@ -577,6 +605,7 @@ Func OnGet()
 
 	If (Not $validShims) Then
 		FileDelete($ShimsetFilename)
+		LogWashDone(False)
 		MsgBox($MB_SYSTEMMODAL + $MB_TOPMOST, $PgmName & ": Error", "Failed to read the current shims!" & @CRLF & "Please check the error log.")
 		GUICtrlSetState($idList, $GUI_FOCUS) ; put focus back on list after any popup
 		Return
@@ -604,6 +633,7 @@ Func OnGet()
 	EndIf
 
 	UpdateListView()
+	LogWashDone(True)
 EndFunc ;==>OnGet
 
 
@@ -639,9 +669,11 @@ Func OnSet()
 		$fname = GetFilenameFromTimeStamp($shimvalArr[2])
 	EndIf
 	LogMessage("Set shims from " & $fname)
+	LogWashBusy()
 
 	; refuse or confirm shims that may belong to a previous patient
 	; (not FASTMAP in v1: _Setup excludes it via $PC_Enabled, which the gate checks)
+	; PatientCheckGate sets the log tint: red if it refused, cleared if the user cancelled
 	If (Not PatientCheckGate($fname)) Then
 		GUICtrlSetState($idList, $GUI_FOCUS) ; put focus back on list after any popup
 		Return
@@ -734,6 +766,7 @@ Func OnSet()
 		If (StringLen($sErr)) Then LogMessage("Debug: stderr = '" & $sErr & "'")
 	EndIf
 
+	LogWashDone($validShims)
 	If (Not $validShims) Then
 		MsgBox($MB_SYSTEMMODAL + $MB_TOPMOST, $PgmName & ": Error", "Failed to set the shims!" & @CRLF & "Please check the error log.")
 		GUICtrlSetState($idList, $GUI_FOCUS) ; put focus back on list after any popup
@@ -792,6 +825,7 @@ Func PatientCheckGate($fname)
 			Return True
 		Case $PC_MISMATCH
 			If ($CFG_BLOCK_ON_MISMATCH) Then
+				LogWashDone(False)
 				MsgBox($MB_ICONERROR + $MB_SYSTEMMODAL + $MB_TOPMOST, $PgmName & ": Patient check", _
 						$sShimset & @CRLF & $aV[1] & $sCurLine & @CRLF & @CRLF & "Shims were NOT applied.", 0, $hGUI)
 				LogMessage("Set refused by patient check: " & $aV[1])
@@ -806,6 +840,7 @@ Func PatientCheckGate($fname)
 
 	; default button is No; any answer other than Yes cancels (a Yes/No dialog has no close button)
 	If ($IDYES <> MsgBox($MB_YESNO + $MB_ICONWARNING + $MB_DEFBUTTON2 + $MB_SYSTEMMODAL + $MB_TOPMOST, $sTitle, $sBody, 0, $hGUI)) Then
+		LogWashClear() ; the user chose this, so no red
 		LogMessage("Set cancelled by patient check (" & ($aV[0] = $PC_MISMATCH ? "different patient" : "not verified") & "): " & $aV[1])
 		Return False
 	EndIf
